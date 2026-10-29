@@ -1,0 +1,29 @@
+{
+  "environment": "test1",
+  "beforeAt": "2026-09-14T03:25:03.248804Z",
+  "topic": "armada.protocol.group.events.v1",
+  "group": "armada-api-group-events-staging",
+  "lag": 16062,
+  "partitions": [
+    {
+      "partition": 0,
+      "current": 821706,
+      "end": 825192,
+      "lag": 3486
+    },
+    {
+      "partition": 1,
+      "current": 1440172,
+      "end": 1446417,
+      "lag": 6245
+    },
+    {
+      "partition": 2,
+      "current": 1150044,
+      "end": 1156375,
+      "lag": 6331
+    }
+  ],
+  "state": "rebalancing",
+  "targetMaxPollRecords": 10
+}

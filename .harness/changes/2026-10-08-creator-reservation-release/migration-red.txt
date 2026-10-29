@@ -1,0 +1,87 @@
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by org.fusesource.jansi.internal.JansiLoader in an unnamed module (file:/opt/homebrew/Cellar/maven/3.9.9/libexec/lib/jansi-2.4.1.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::objectFieldOffset has been called by com.google.common.util.concurrent.AbstractFuture$UnsafeAtomicHelper (file:/opt/homebrew/Cellar/maven/3.9.9/libexec/lib/guava-33.2.1-jre.jar)
+WARNING: Please consider reporting this to the maintainers of class com.google.common.util.concurrent.AbstractFuture$UnsafeAtomicHelper
+WARNING: sun.misc.Unsafe::objectFieldOffset will be removed in a future release
+WARNING: Final field _cipher in class org.sonatype.plexus.components.sec.dispatcher.DefaultSecDispatcher has been mutated reflectively by class org.eclipse.sisu.bean.BeanPropertyField in unnamed module @143640d5 (file:/opt/homebrew/Cellar/maven/3.9.9/libexec/lib/org.eclipse.sisu.inject-0.9.0.M3.jar)
+WARNING: Use --enable-final-field-mutation=ALL-UNNAMED to avoid a warning
+WARNING: Mutating final fields will be blocked in a future release unless final field mutation is enabled
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] -----------------------< com.armada:armada-api >------------------------
+[INFO] Building armada-api 1.0.2-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ armada-api ---
+[INFO] Copying 1 resource from src/main/resources to target/classes
+[INFO] Copying 352 resources from src/main/resources to target/classes
+[INFO] 
+[INFO] --- compiler:3.13.0:compile (default-compile) @ armada-api ---
+[INFO] Nothing to compile - all classes are up to date.
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ armada-api ---
+[INFO] Copying 1 resource from src/test/resources to target/test-classes
+[INFO] 
+[INFO] --- compiler:3.13.0:testCompile (default-testCompile) @ armada-api ---
+[INFO] Recompiling the module because of changed source code.
+[INFO] Compiling 947 source files with javac [debug parameters release 17] to target/test-classes
+[INFO] /Users/daishuaishuai/IdeaProjects/armada/armada-api/src/test/java/com/armada/account/takeover/AccountTakeoverH2Support.java: 某些输入文件使用或覆盖了已过时的 API。
+[INFO] /Users/daishuaishuai/IdeaProjects/armada/armada-api/src/test/java/com/armada/account/takeover/AccountTakeoverH2Support.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+[INFO] /Users/daishuaishuai/IdeaProjects/armada/armada-api/src/test/java/com/armada/account/service/impl/AccountBatchLifecycleServiceImplTest.java: 某些输入文件使用了未经检查或不安全的操作。
+[INFO] /Users/daishuaishuai/IdeaProjects/armada/armada-api/src/test/java/com/armada/account/service/impl/AccountBatchLifecycleServiceImplTest.java: 有关详细信息, 请使用 -Xlint:unchecked 重新编译。
+[INFO] 
+[INFO] --- surefire:3.2.5:test (default-test) @ armada-api ---
+[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
+[INFO] 
+[INFO] -------------------------------------------------------
+[INFO]  T E S T S
+[INFO] -------------------------------------------------------
+[INFO] Running com.armada.task.mapper.PullTaskCreatorDeletionReleaseMigrationTest
+[ERROR] Tests run: 1, Failures: 0, Errors: 1, Skipped: 0, Time elapsed: 0.152 s <<< FAILURE! -- in com.armada.task.mapper.PullTaskCreatorDeletionReleaseMigrationTest
+[ERROR] com.armada.task.mapper.PullTaskCreatorDeletionReleaseMigrationTest.migrationIsIdempotentAndAllowsRepeatedReleaseHistory -- Time elapsed: 0.139 s <<< ERROR!
+org.springframework.jdbc.datasource.init.CannotReadScriptException: Cannot read SQL script from class path resource [db/migration/V217__account_creator_deletion_release.sql]
+	at org.springframework.jdbc.datasource.init.ScriptUtils.executeSqlScript(ScriptUtils.java:239)
+	at org.springframework.jdbc.datasource.init.ScriptUtils.executeSqlScript(ScriptUtils.java:188)
+	at org.springframework.jdbc.datasource.init.ScriptUtils.executeSqlScript(ScriptUtils.java:150)
+	at org.springframework.jdbc.datasource.init.ScriptUtils.executeSqlScript(ScriptUtils.java:126)
+	at com.armada.task.mapper.PullTaskCreatorDeletionReleaseMigrationTest.migrationIsIdempotentAndAllowsRepeatedReleaseHistory(PullTaskCreatorDeletionReleaseMigrationTest.java:21)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:583)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1612)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1612)
+Caused by: java.io.FileNotFoundException: class path resource [db/migration/V217__account_creator_deletion_release.sql] cannot be opened because it does not exist
+	at org.springframework.core.io.ClassPathResource.getInputStream(ClassPathResource.java:215)
+	at org.springframework.core.io.support.EncodedResource.getReader(EncodedResource.java:147)
+	at org.springframework.jdbc.datasource.init.ScriptUtils.readScript(ScriptUtils.java:328)
+	at org.springframework.jdbc.datasource.init.ScriptUtils.executeSqlScript(ScriptUtils.java:236)
+	... 7 more
+
+[INFO] 
+[INFO] Results:
+[INFO] 
+[ERROR] Errors: 
+[ERROR]   PullTaskCreatorDeletionReleaseMigrationTest.migrationIsIdempotentAndAllowsRepeatedReleaseHistory:21 » CannotReadScript Cannot read SQL script from class path resource [db/migration/V217__account_creator_deletion_release.sql]
+[INFO] 
+[ERROR] Tests run: 1, Failures: 0, Errors: 1, Skipped: 0
+[INFO] 
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  17.585 s
+[INFO] Finished at: 2026-10-09T09:50:08+08:00
+[INFO] ------------------------------------------------------------------------
+[ERROR] Failed to execute goal org.apache.maven.plugins:maven-surefire-plugin:3.2.5:test (default-test) on project armada-api: 
+[ERROR] 
+[ERROR] Please refer to /Users/daishuaishuai/IdeaProjects/armada/armada-api/target/surefire-reports for the individual test results.
+[ERROR] Please refer to dump files (if any exist) [date].dump, [date]-jvmRun[N].dump and [date].dumpstream.
+[ERROR] -> [Help 1]
+[ERROR] 
+[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+[ERROR] Re-run Maven using the -X switch to enable full debug logging.
+[ERROR] 
+[ERROR] For more information about the errors and possible solutions, please read the following articles:
+[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException

@@ -1,0 +1,44 @@
+{
+  "environment": "perf2",
+  "topic": "armada.perf.protocol.group.events.v1",
+  "readMode": "read-only Fetch by timestamp; no consumer group or offset commit",
+  "accountId": 2624,
+  "phoneSuffix": "2625",
+  "events": [
+    {
+      "partition": 3,
+      "offset": "12632",
+      "occurredAt": "2026-09-17T17:02:12.10216507Z",
+      "source": "android_group_sync_command",
+      "groupJid": "120363354764987181@g.us",
+      "subject": "zubleq laboratory",
+      "creatorMatchesAccount": true,
+      "selfMember": {"admin": false, "role": "", "owner": true}
+    },
+    {
+      "partition": 3,
+      "offset": "12634",
+      "occurredAt": "2026-09-17T17:02:14.120534324Z",
+      "source": "android_group_sync_command",
+      "groupJid": "120363418504107661@g.us",
+      "subject": "Old med staff",
+      "creatorMatchesAccount": true,
+      "selfMember": {"admin": true, "role": "superadmin", "owner": true}
+    },
+    {
+      "partition": 3,
+      "offset": "12635",
+      "occurredAt": "2026-09-17T17:02:15.121647495Z",
+      "source": "android_group_sync_command",
+      "groupJid": "120363334534972769@g.us",
+      "subject": "Destincare pharmacy group",
+      "creatorMatchesAccount": true,
+      "selfMember": {"admin": false, "role": "", "owner": true}
+    }
+  ],
+  "liveCheck": {
+    "checkedAt": "2026-09-18T07:35:36Z",
+    "allThreeGroups": "Code=1003 account not online",
+    "currentRoleVerified": false
+  }
+}

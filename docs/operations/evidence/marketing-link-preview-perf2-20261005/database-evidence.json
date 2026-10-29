@@ -1,0 +1,364 @@
+{
+  "environment": "perf2",
+  "database": "armada_perf",
+  "date": "2026-10-05",
+  "user_timezone": "Asia/Shanghai",
+  "scope": "Read-only investigation of missing images on marketing templates shown in user screenshot. No resend, task state change, code change, or deployment.",
+  "templates": [
+    {
+      "id": "186",
+      "tenant_id": "1",
+      "template_name": "普通超链",
+      "link_mode": "1",
+      "image_file_id": "191",
+      "mention_all": "true",
+      "content_length": "378",
+      "body_length": "0",
+      "promotion_link": "https://bit.ly/4y4dIoF",
+      "created_utc": "2026-10-05T13:19:20.794",
+      "updated_utc": "2026-10-05T13:19:20.794",
+      "deleted_at": "NULL"
+    },
+    {
+      "id": "185",
+      "tenant_id": "1",
+      "template_name": "10-5",
+      "link_mode": "4",
+      "image_file_id": "190",
+      "mention_all": "true",
+      "content_length": "378",
+      "body_length": "0",
+      "promotion_link": "https://bit.ly/4y4dIoF",
+      "created_utc": "2026-10-05T13:13:35.834",
+      "updated_utc": "2026-10-05T13:13:35.834",
+      "deleted_at": "NULL"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "317",
+      "tenant_id": "1",
+      "task_name": "111",
+      "marketing_template_id": "186",
+      "status": "8",
+      "target_group_count": "6",
+      "sent_message_count": "6",
+      "failed_message_count": "0",
+      "started_utc": "2026-10-05T13:20:16.195",
+      "last_sent_utc": "2026-10-05T13:20:38.485"
+    },
+    {
+      "id": "316",
+      "tenant_id": "1",
+      "task_name": "https://bit.ly/4y4dIoF",
+      "marketing_template_id": "185",
+      "status": "8",
+      "target_group_count": "7",
+      "sent_message_count": "7",
+      "failed_message_count": "0",
+      "started_utc": "2026-10-05T13:14:29.089",
+      "last_sent_utc": "2026-10-05T13:14:49.392"
+    }
+  ],
+  "images": [
+    {
+      "id": "190",
+      "content_type": "image/jpeg",
+      "size_bytes": "203340",
+      "actual_bytes": "203340",
+      "width": "NULL",
+      "height": "NULL",
+      "deleted_at": "NULL"
+    },
+    {
+      "id": "191",
+      "content_type": "image/jpeg",
+      "size_bytes": "203340",
+      "actual_bytes": "203340",
+      "width": "NULL",
+      "height": "NULL",
+      "deleted_at": "NULL"
+    }
+  ],
+  "sent_commands": [
+    {
+      "id": "4368377",
+      "marketing_task_id": "316",
+      "status": "1",
+      "message_id": "4E26AF6C9D8A4B70A56813478A25EBB6",
+      "command_id": "cmd_1c7f24cd04f8408fbdb948de6bcde3fb",
+      "protocol_backend": "ANDROID",
+      "message_type": "LINK_CARD",
+      "account_id": "2000",
+      "image_ref": {
+        "sha256": "3cbf75ff78f66b8e88aff4996d3a82ccffc826ff6a5935c33f2c7d2a7cb96d86",
+        "mimetype": "image/jpeg",
+        "sizeBytes": 203340,
+        "transformProfile": "marketing-image-v1"
+      },
+      "url": "https://bit.ly/4y4dIoF",
+      "text_length": "401",
+      "title_length": "6",
+      "result_utc": "2026-10-05T13:14:49.392"
+    },
+    {
+      "id": "4368378",
+      "marketing_task_id": "316",
+      "status": "1",
+      "message_id": "5AB01CDB1F404F338AFF299F77051116",
+      "command_id": "cmd_e2d7615937eb4575956741b132299a18",
+      "protocol_backend": "ANDROID",
+      "message_type": "LINK_CARD",
+      "account_id": "2000",
+      "image_ref": {
+        "sha256": "3cbf75ff78f66b8e88aff4996d3a82ccffc826ff6a5935c33f2c7d2a7cb96d86",
+        "mimetype": "image/jpeg",
+        "sizeBytes": 203340,
+        "transformProfile": "marketing-image-v1"
+      },
+      "url": "https://bit.ly/4y4dIoF",
+      "text_length": "401",
+      "title_length": "6",
+      "result_utc": "2026-10-05T13:14:47.402"
+    },
+    {
+      "id": "4368379",
+      "marketing_task_id": "316",
+      "status": "1",
+      "message_id": "5C96F0E5E79C4E07B5C70564E8369210",
+      "command_id": "cmd_011bfcb8acf04a00b1f4a83d4894bf49",
+      "protocol_backend": "ANDROID",
+      "message_type": "LINK_CARD",
+      "account_id": "2000",
+      "image_ref": {
+        "sha256": "3cbf75ff78f66b8e88aff4996d3a82ccffc826ff6a5935c33f2c7d2a7cb96d86",
+        "mimetype": "image/jpeg",
+        "sizeBytes": 203340,
+        "transformProfile": "marketing-image-v1"
+      },
+      "url": "https://bit.ly/4y4dIoF",
+      "text_length": "401",
+      "title_length": "6",
+      "result_utc": "2026-10-05T13:14:48.730"
+    },
+    {
+      "id": "4368381",
+      "marketing_task_id": "316",
+      "status": "1",
+      "message_id": "BD5ACF50314C418582D7630B1D24435E",
+      "command_id": "cmd_75d036131ad743eca82ae0df0ad7f4e1",
+      "protocol_backend": "ANDROID",
+      "message_type": "LINK_CARD",
+      "account_id": "2000",
+      "image_ref": {
+        "sha256": "3cbf75ff78f66b8e88aff4996d3a82ccffc826ff6a5935c33f2c7d2a7cb96d86",
+        "mimetype": "image/jpeg",
+        "sizeBytes": 203340,
+        "transformProfile": "marketing-image-v1"
+      },
+      "url": "https://bit.ly/4y4dIoF",
+      "text_length": "401",
+      "title_length": "6",
+      "result_utc": "2026-10-05T13:14:46.381"
+    },
+    {
+      "id": "4368385",
+      "marketing_task_id": "316",
+      "status": "1",
+      "message_id": "933E17B4210445E3A8576A27E4355FCB",
+      "command_id": "cmd_ff857e143d04482ea074eab8a4c02663",
+      "protocol_backend": "ANDROID",
+      "message_type": "LINK_CARD",
+      "account_id": "2035",
+      "image_ref": {
+        "sha256": "3cbf75ff78f66b8e88aff4996d3a82ccffc826ff6a5935c33f2c7d2a7cb96d86",
+        "mimetype": "image/jpeg",
+        "sizeBytes": 203340,
+        "transformProfile": "marketing-image-v1"
+      },
+      "url": "https://bit.ly/4y4dIoF",
+      "text_length": "401",
+      "title_length": "6",
+      "result_utc": "2026-10-05T13:14:42.839"
+    },
+    {
+      "id": "4368387",
+      "marketing_task_id": "316",
+      "status": "1",
+      "message_id": "8AD0E6A062F44A0D947F689BE19DAF09",
+      "command_id": "cmd_3062da3a355a43f6b6f495bec30e4d58",
+      "protocol_backend": "ANDROID",
+      "message_type": "LINK_CARD",
+      "account_id": "2035",
+      "image_ref": {
+        "sha256": "3cbf75ff78f66b8e88aff4996d3a82ccffc826ff6a5935c33f2c7d2a7cb96d86",
+        "mimetype": "image/jpeg",
+        "sizeBytes": 203340,
+        "transformProfile": "marketing-image-v1"
+      },
+      "url": "https://bit.ly/4y4dIoF",
+      "text_length": "401",
+      "title_length": "6",
+      "result_utc": "2026-10-05T13:14:46.461"
+    },
+    {
+      "id": "4368391",
+      "marketing_task_id": "316",
+      "status": "1",
+      "message_id": "CA0D6A89F19D4B8395EA3537F1633E15",
+      "command_id": "cmd_7b5b93de4ae74269b8df29388ddef164",
+      "protocol_backend": "ANDROID",
+      "message_type": "LINK_CARD",
+      "account_id": "2035",
+      "image_ref": {
+        "sha256": "3cbf75ff78f66b8e88aff4996d3a82ccffc826ff6a5935c33f2c7d2a7cb96d86",
+        "mimetype": "image/jpeg",
+        "sizeBytes": 203340,
+        "transformProfile": "marketing-image-v1"
+      },
+      "url": "https://bit.ly/4y4dIoF",
+      "text_length": "401",
+      "title_length": "6",
+      "result_utc": "2026-10-05T13:14:39.590"
+    },
+    {
+      "id": "4368423",
+      "marketing_task_id": "317",
+      "status": "1",
+      "message_id": "7F0328673DC44845A5DDC6728D143AE1",
+      "command_id": "cmd_7bff67220fba475d826246df48cbd35b",
+      "protocol_backend": "ANDROID",
+      "message_type": "LINK_CARD",
+      "account_id": "1961",
+      "image_ref": {
+        "sha256": "3cbf75ff78f66b8e88aff4996d3a82ccffc826ff6a5935c33f2c7d2a7cb96d86",
+        "mimetype": "image/jpeg",
+        "sizeBytes": 203340,
+        "transformProfile": "marketing-image-v1"
+      },
+      "url": "https://bit.ly/4y4dIoF",
+      "text_length": "22",
+      "title_length": "378",
+      "result_utc": "2026-10-05T13:20:38.197"
+    },
+    {
+      "id": "4368424",
+      "marketing_task_id": "317",
+      "status": "1",
+      "message_id": "B1AFF60A39504BFD808A50CCF4D04CD0",
+      "command_id": "cmd_38f42af9a887470299779eaffcb33391",
+      "protocol_backend": "ANDROID",
+      "message_type": "LINK_CARD",
+      "account_id": "1961",
+      "image_ref": {
+        "sha256": "3cbf75ff78f66b8e88aff4996d3a82ccffc826ff6a5935c33f2c7d2a7cb96d86",
+        "mimetype": "image/jpeg",
+        "sizeBytes": 203340,
+        "transformProfile": "marketing-image-v1"
+      },
+      "url": "https://bit.ly/4y4dIoF",
+      "text_length": "22",
+      "title_length": "378",
+      "result_utc": "2026-10-05T13:20:33.499"
+    },
+    {
+      "id": "4368425",
+      "marketing_task_id": "317",
+      "status": "1",
+      "message_id": "DB6C7687C63042FB967D923FDA1EE965",
+      "command_id": "cmd_822f2aa9f98a4ddfbc4a4bbb2f912b34",
+      "protocol_backend": "ANDROID",
+      "message_type": "LINK_CARD",
+      "account_id": "1961",
+      "image_ref": {
+        "sha256": "3cbf75ff78f66b8e88aff4996d3a82ccffc826ff6a5935c33f2c7d2a7cb96d86",
+        "mimetype": "image/jpeg",
+        "sizeBytes": 203340,
+        "transformProfile": "marketing-image-v1"
+      },
+      "url": "https://bit.ly/4y4dIoF",
+      "text_length": "22",
+      "title_length": "378",
+      "result_utc": "2026-10-05T13:20:35.948"
+    },
+    {
+      "id": "4368428",
+      "marketing_task_id": "317",
+      "status": "1",
+      "message_id": "0B436FD55EB54B2BB725DFAD0B2E5C0C",
+      "command_id": "cmd_bd61c637a9b14491bd60af21903dcb1d",
+      "protocol_backend": "ANDROID",
+      "message_type": "LINK_CARD",
+      "account_id": "1961",
+      "image_ref": {
+        "sha256": "3cbf75ff78f66b8e88aff4996d3a82ccffc826ff6a5935c33f2c7d2a7cb96d86",
+        "mimetype": "image/jpeg",
+        "sizeBytes": 203340,
+        "transformProfile": "marketing-image-v1"
+      },
+      "url": "https://bit.ly/4y4dIoF",
+      "text_length": "22",
+      "title_length": "378",
+      "result_utc": "2026-10-05T13:20:38.485"
+    },
+    {
+      "id": "4368431",
+      "marketing_task_id": "317",
+      "status": "1",
+      "message_id": "A123BF741CF74B1FB97AE27ED119F90D",
+      "command_id": "cmd_f844691d54444da5ad4a7fc7f6693320",
+      "protocol_backend": "ANDROID",
+      "message_type": "LINK_CARD",
+      "account_id": "1977",
+      "image_ref": {
+        "sha256": "3cbf75ff78f66b8e88aff4996d3a82ccffc826ff6a5935c33f2c7d2a7cb96d86",
+        "mimetype": "image/jpeg",
+        "sizeBytes": 203340,
+        "transformProfile": "marketing-image-v1"
+      },
+      "url": "https://bit.ly/4y4dIoF",
+      "text_length": "22",
+      "title_length": "378",
+      "result_utc": "2026-10-05T13:20:25.563"
+    },
+    {
+      "id": "4368433",
+      "marketing_task_id": "317",
+      "status": "1",
+      "message_id": "10F2B66FE8BC4A07B786C6E376AC8AC0",
+      "command_id": "cmd_918da201d0a146759e57ff6b850f8288",
+      "protocol_backend": "ANDROID",
+      "message_type": "LINK_CARD",
+      "account_id": "1977",
+      "image_ref": {
+        "sha256": "3cbf75ff78f66b8e88aff4996d3a82ccffc826ff6a5935c33f2c7d2a7cb96d86",
+        "mimetype": "image/jpeg",
+        "sizeBytes": 203340,
+        "transformProfile": "marketing-image-v1"
+      },
+      "url": "https://bit.ly/4y4dIoF",
+      "text_length": "22",
+      "title_length": "378",
+      "result_utc": "2026-10-05T13:20:29.327"
+    }
+  ],
+  "confirmed": [
+    "Screenshot short URL identifies template 185 IMAGE_LINK and template 186 NORMAL, tasks 316 and 317.",
+    "Both original image blobs are 203340-byte JPEG files with the same SHA256 as every command assetRef.",
+    "All 13 message-bearing attempts use ANDROID LINK_CARD and carry the thumbnail assetRef.",
+    "IMAGE_LINK text preserves body and appends URL; NORMAL carries the URL in text and the 378-character copy in preview title.",
+    "Current source does not silently send plain text when LINK_CARD media loading fails."
+  ],
+  "not_proven": [
+    "Historical outgoing encrypted message plaintext and complete uploaded media response are unavailable from database evidence.",
+    "Actual client reason for suppressing the image/preview is not yet established.",
+    "ACK or task success does not prove recipient image rendering."
+  ],
+  "source_files": [
+    "MarketingMessageComposer.java",
+    "AndroidMessageSendBackend.java",
+    "internal/armada/message_sender.go",
+    "internal/service/node/message_payload.go"
+  ],
+  "queries_source": "Read-only JDBC over existing perf2 SSH tunnel; transaction rolled back; only selected metadata returned; no credentials stored."
+}

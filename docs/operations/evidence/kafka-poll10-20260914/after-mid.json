@@ -1,0 +1,36 @@
+{
+  "observedAt": "2026-09-14T03:33:37.404752+00:00",
+  "containerStartedAt": "2026-09-14T03:28:04.36218119Z",
+  "lag": 15334,
+  "partitions": [
+    {
+      "partition": 0,
+      "current": 822118,
+      "end": 825192,
+      "lag": 3074,
+      "assigned": true
+    },
+    {
+      "partition": 2,
+      "current": 1150209,
+      "end": 1156376,
+      "lag": 6167,
+      "assigned": true
+    },
+    {
+      "partition": 1,
+      "current": 1440330,
+      "end": 1446423,
+      "lag": 6093,
+      "assigned": true
+    }
+  ],
+  "stable": true,
+  "rebalancingWarning": false,
+  "groupPollTimeoutsSinceRestart": 0,
+  "groupCommitFailuresSinceRestart": 0,
+  "apiProbe": {
+    "http": 401,
+    "code": 40104
+  }
+}

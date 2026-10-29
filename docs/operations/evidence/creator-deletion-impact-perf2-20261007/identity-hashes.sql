@@ -1,0 +1,1 @@
+SELECT id,LOWER(SHA2(TRIM(ws_phone),256)) phone_hash FROM account WHERE id IN (1038,1736,2755,2757) OR EXISTS (SELECT 1 FROM account_creator_deletion d WHERE d.account_id=account.id OR d.creator_phone=account.creator_deletion_identity_phone);

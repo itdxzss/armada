@@ -1,0 +1,159 @@
+{
+  "environment": "perf2",
+  "conclusion": "BLOCKED_FOR_REAL_BUSINESS_ACCEPTANCE",
+  "reason": "No currently confirmed controlled test recipient authorized for this group-add acceptance. No task or group created.",
+  "checked_at_utc": {
+    "database": "2026-10-03T03:57:42.247Z",
+    "protocol_status": "2026-10-03T04:00:11Z",
+    "final_occupancy": "2026-10-03T04:05:45.658Z"
+  },
+  "candidate_only_not_actual_selection": [
+    {
+      "intended_role": "creator",
+      "group_id": 658,
+      "account_id": 999,
+      "phone_tail": "2815",
+      "protocol": "ANDROID"
+    },
+    {
+      "intended_role": "secondary_admin",
+      "group_id": 659,
+      "account_id": 1038,
+      "phone_tail": "4355",
+      "protocol": "ANDROID"
+    },
+    {
+      "intended_role": "puller",
+      "group_id": 664,
+      "account_id": 821,
+      "phone_tail": "7358",
+      "protocol": "ANDROID"
+    }
+  ],
+  "candidate_results": {
+    "tenant_id": 1,
+    "ownership": 1,
+    "account_state": 2,
+    "login_state": 1,
+    "android_status_code": 0,
+    "android_status": "online",
+    "risk_status": null,
+    "cooldown_until": null,
+    "mute_status": null,
+    "pulling_restriction_until": null,
+    "groups_one_account_each": true,
+    "group_prohibitions_found": false,
+    "active_or_paused_occupancy_found": false,
+    "must_refresh_before_future_execution": true
+  },
+  "occupancy_scope": [
+    "account_group marketing occupancy",
+    "pull_task_group_account all roles and releases",
+    "pull_task_standard_setting active task role-group references",
+    "marketing_account_occupancy",
+    "group_pull_marketing_execution unreleased builder or marketer",
+    "hyperlink_task_round_account unreleased assignments and runtime",
+    "feed_task_account and task filters",
+    "contact_friend_task_account and task filters",
+    "join_task_result plus group or selected-account references",
+    "normal_group_creation_item plus all role-group references",
+    "group_creation_marketing_item plus group references",
+    "marketing_task group references",
+    "script_marketing_task group references"
+  ],
+  "historical_nonblocking_rows": [
+    {
+      "account_id": 821,
+      "task_type": "pull_task",
+      "task_id": 43,
+      "status": "COMPLETED",
+      "execution_id": 210,
+      "role_type": 3,
+      "occupied_at": null,
+      "note": "historical station row; no puller occupancy key"
+    },
+    {
+      "task_type": "marketing_task",
+      "task_id": 306,
+      "status_code": 8,
+      "status": "CLOSED",
+      "group_id": 658
+    },
+    {
+      "task_type": "marketing_task",
+      "task_id": 307,
+      "status_code": 8,
+      "status": "CLOSED",
+      "group_id": 664
+    }
+  ],
+  "controlled_materials": {
+    "group_data_package_matching_test_metadata": 0,
+    "data_package_id_7": {
+      "count": 4,
+      "referenced_self_owned_account_ids": [
+        2176,
+        2173,
+        1786,
+        1787
+      ],
+      "remark": "部署验收：仅第二套自有账号2176、2173、1786、1787，共4个收件号码，每号最多1条。",
+      "decision": "Historical messaging-test scope only. This is not authorization to add these recipients to a group. Recipient numbers not read or used."
+    },
+    "other_test_named_packages": "No provenance remark; not accepted as controlled recipients."
+  },
+  "deployment": {
+    "backend_commit_release_record": "0a900d181e1259440ad6e18289bb90574959e738",
+    "running_jar_sha256": "620512b08916292a9212b10a47a259a2bc7cb06febf1800098ce1096c3fb6e73",
+    "jar_matches_release_record_and_local_perf2_release": true,
+    "frontend_saas_index_sha256": "2b4e91df09e4d8e5f862fca0b96582f4a258dec0116b4b0d7e65621883d5bf03",
+    "frontend_matches_release_record_and_local_release": true,
+    "android_deployed_source_hashes_match_release_record": true,
+    "android_runtime_binary_to_source_attestation": "not independently established",
+    "V209": {
+      "success": 1,
+      "installed_on_utc": "2026-10-02T23:43:39Z"
+    },
+    "V210": {
+      "success": 1,
+      "installed_on_utc": "2026-10-02T23:43:39Z"
+    },
+    "columns_present": [
+      "profile_verified_at",
+      "profile_verified_command_id",
+      "pull_interval_seconds",
+      "pull_interval_max_seconds"
+    ]
+  },
+  "new_task_evidence": {
+    "new_group_tasks_created_since_preflight": 0,
+    "query_at_utc": "2026-10-03T04:05:45.658Z",
+    "latest_pull_task_id": 51,
+    "latest_task_creation_mode": "DIRECT_LINK",
+    "task_id": null,
+    "execution_id": null,
+    "group_jid": null,
+    "command_id": null
+  },
+  "not_verified": [
+    "real form submission",
+    "profile command outcome",
+    "real name and description readback",
+    "profile verification credential persistence",
+    "first material-add command ordering",
+    "secondary admin privileges",
+    "controlled material group membership",
+    "final page/database/protocol agreement"
+  ],
+  "evidence_files": [
+    "precheck.tsv",
+    "protocol-status.jsonl",
+    "occupancy.tsv",
+    "other-usage.tsv",
+    "final-preflight.tsv",
+    "runtime-artifacts.txt",
+    "frontend-artifact-verified.txt",
+    "android-runtime-artifacts.txt",
+    "local-artifacts.json"
+  ]
+}

@@ -1,0 +1,34 @@
+record_type	id	tenant_id	deleted_at	dispatched_at
+backup_account	2755	1	NULL	NULL
+record_type	account_id	account_state	login_state	desired_login_state	state_source	invalidated_at	updated_at
+backup_state	2755	2	1	1	STATE_CHANGED	NULL	1791278633522
+record_type	account_id	task_id	group_execution_id	lifecycle	operation_id
+backup_creator_lock	2755	64	303	RESERVED	NULL
+record_type	id	status
+backup_task	64	ENDED
+record_type	id	task_id	execution_status
+backup_execution	303	64	6
+record_type	id	task_id	group_execution_id	account_id	role_type	availability_status	unavailable_reason_code	released_at	updated_at
+backup_role	4680	64	303	2755	4	1	NULL	NULL	1791286519101
+record_type	id	status	bound_account_id	bound_at	pairing_session_id	updated_at
+backup_proxy	13019	2	2755	1791274767094	NULL	1791274767094
+result	allowed	repair_utc
+repair_guard	1	2026-10-06 14:24:09.4640
+result	affected
+repair_account_soft_deleted	1
+result	affected
+repair_auto_login_stopped	1
+result	affected
+repair_pending_online_canceled	0
+result	affected
+repair_ended_task_role_released	1
+result	affected
+repair_bound_proxy_released	1
+result	id	deleted_utc	login_state	desired_login_state	state_source
+final_account	2755	2026-10-06 14:24:09.4640	2	2	ACCOUNT_DELETED
+result	n
+final_active_account_count	0
+result	n
+final_pending_online_count	0
+result	n
+final_proxy_binding_count	0

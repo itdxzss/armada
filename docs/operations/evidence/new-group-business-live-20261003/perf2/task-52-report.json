@@ -1,0 +1,171 @@
+{
+  "environment": "perf2",
+  "business_acceptance": "FAILED",
+  "task_id": 52,
+  "execution_id": 257,
+  "group_jid": "120363411384572796@g.us",
+  "task_name": "NG验收-perf2-20261003-1230",
+  "observed_final_db_status": "EXECUTING",
+  "observed_final_stage": "MANAGER_JOIN",
+  "observed_final_db_at_utc": "2026-10-03T04:43:21.637Z",
+  "real_readback_at_utc": "2026-10-03T04:43:37.941988Z",
+  "actual_roles": {
+    "creator": {
+      "account_id": 999,
+      "tail": "2815",
+      "protocol": "ANDROID",
+      "role_row_id": 1419,
+      "actual_group_permission": "superadmin"
+    },
+    "secondary_admin": {
+      "account_id": 1038,
+      "tail": "4355",
+      "protocol": "ANDROID",
+      "role_row_id": 1420,
+      "actual_group_permission": "ordinary member, type empty"
+    },
+    "puller": {
+      "actual_selected": false,
+      "candidate_account_id": 821,
+      "candidate_tail": "7358",
+      "candidate_protocol": "ANDROID",
+      "group_id": 664
+    }
+  },
+  "configuration_verified": {
+    "creation_mode": "NEW_GROUP",
+    "group_count": 1,
+    "valid_material_count": 6,
+    "source_file": "A8-XA747-perf2-accept-6.txt",
+    "creator_group_id": 658,
+    "manager_group_id": 659,
+    "puller_group_id": 664,
+    "initial_station_count": 0,
+    "station_count_per_call": 0,
+    "early_pull_call_count": 0,
+    "pull_count_min": 1,
+    "pull_count_max": 3,
+    "pull_interval_min_seconds": 10,
+    "pull_interval_max_seconds": 15,
+    "group_settings_enabled": true,
+    "setting_timing": "BEFORE_PULL",
+    "filename_as_group_name": false
+  },
+  "profile": {
+    "command_id": "cmd_5827c8d52eb14a5c9a51a1dac1c78e3c",
+    "action_id": 4253,
+    "attempt_no": 1,
+    "protocol_backend": "ANDROID",
+    "protocol_outcome_from_backend_event_log": "SUCCESS",
+    "submitted_at": 1791002286767,
+    "outbox_created_at": 1791002286782,
+    "outbox_sent_at": 1791002286834,
+    "protocol_result_at": 1791002288560,
+    "backend_result_log_utc": "2026-10-03T04:38:09.588Z",
+    "profile_verified_at_final": 1791002326522,
+    "profile_verified_command_id": "cmd_5827c8d52eb14a5c9a51a1dac1c78e3c",
+    "early_observed_verified_at": 1791002317728,
+    "early_db_observed_at_utc": "2026-10-03T04:38:41.673Z",
+    "material_commands_at_early_snapshot": 0,
+    "readback_name_matches": true,
+    "readback_description_matches": true,
+    "readback_group_jid_matches": true,
+    "verification_timestamp_change_explanation": {
+      "classification": "Expected current implementation: two profile readbacks of the same command at create steps 4 and 6",
+      "first_profile_verified_at": 1791002317728,
+      "second_profile_verified_at": 1791002326522,
+      "same_command_id": "cmd_5827c8d52eb14a5c9a51a1dac1c78e3c",
+      "same_action_id": 4253,
+      "same_attempt_no": 1,
+      "second_profile_command_sent": false,
+      "chain": "APPLY_PROFILE(step4) calls applyProfile and completes verified transition to CAPTURE_INVITE_LINK(step5). completeInvite advances to APPLY_BEFORE_PULL_SETTINGS(step6), which calls applyProfile again. Existing SUCCESS action causes dispatcher to return without a resend, but getMetadata runs again. completeProfile writes the new verification time when matching. REGISTER_GROUP(step7) only checks the proof; it does not write it.",
+      "mapper_rule": "transitionGroupCreate writes profile_verified_at=transition.now whenever verifiedProfileCommandId is supplied; no first-verification-only guard.",
+      "not_on_group_registered_callback": true,
+      "source_evidence": [
+        "PullTaskGroupCreateProcessor.java:61-64",
+        "PullTaskGroupCreateProcessor.java:76-85",
+        "PullTaskGroupCreateTransactionService.java:330-336",
+        "PullTaskGroupCreateTransactionService.java:418-424",
+        "PullTaskGroupCreateTransactionService.java:455-500",
+        "PullTaskGroupExecutionMapper.xml:486-489",
+        "PullTaskGroupProfileDispatcher.java:89-97"
+      ]
+    },
+    "protocol_result_semantics": "This run received raw SUCCESS in the backend event log. Re-verification updates execution proof only, not action_status. UNKNOWN behavior is a source/local-test fact, not a live UNKNOWN observed in perf2 task52."
+  },
+  "final_group_readback": {
+    "group_id": "120363411384572796",
+    "subject": "NG验收-perf2-20261003-1230",
+    "description": "NEW_GROUP 真实业务验收｜perf2｜2026-10-03 12:30\n群名称和简介回读匹配并持久化后，才允许拉入受控料子。",
+    "member_count": 2,
+    "members": [
+      {
+        "phone_tail": "2815",
+        "type": "superadmin",
+        "roles": [
+          {
+            "account_id": 999,
+            "role_type": 4
+          }
+        ],
+        "material_ids": [],
+        "has_jid": true
+      },
+      {
+        "phone_tail": "4355",
+        "type": "",
+        "roles": [
+          {
+            "account_id": 1038,
+            "role_type": 1
+          }
+        ],
+        "material_ids": [],
+        "has_jid": true
+      }
+    ]
+  },
+  "materials": {
+    "expected": 6,
+    "database_equals_authorized_sample": true,
+    "attempted": 0,
+    "confirmed_present": 0,
+    "first_material_command_id": null,
+    "first_material_command_submitted_at": null,
+    "proof_lead_ms": null,
+    "actual_batch_sizes_and_intervals_verified": false
+  },
+  "failure": {
+    "direct_error": "IllegalStateException: 管理员踩链接结果回写失败",
+    "first_error_at_utc": "2026-10-03T04:38:51.690Z",
+    "count_through_044352": 11,
+    "backoff_seconds": 30,
+    "reason": "New-group secondary administrator is already IN_GROUP. prepareExisting creates a missing JOIN_BY_LINK action in PENDING, then invokes complete immediately. writeBackResult only accepts SUBMITTED, so its CAS updates zero rows; the transaction rolls back action creation and stage advancement. Scheduler backs off and repeats.",
+    "automatic_pause": false,
+    "group_recreated": false,
+    "repair_suggestion": "Handle already-IN_GROUP observation as a dedicated transition that can close this initial local action or advance without inventing a sent protocol join command. Preserve normal asynchronous callback CAS and old-command protections. Add a real Mapper/H2 test for NEW_GROUP initial manager IN_GROUP with no prior JOIN_BY_LINK action."
+  },
+  "source_locations": [
+    "armada-api/src/main/java/com/armada/task/scheduler/PullTaskGroupCreateTransactionService.java:490",
+    "armada-api/src/main/java/com/armada/task/scheduler/PullTaskManagerJoinTransactionService.java:166",
+    "armada-api/src/main/java/com/armada/task/scheduler/PullTaskManagerJoinTransactionService.java:414",
+    "armada-api/src/main/java/com/armada/task/mapper/PullTaskAccountActionMapper.java:123",
+    "armada-api/src/main/resources/mapper/task/PullTaskAccountActionMapper.xml:65",
+    "armada-api/src/main/java/com/armada/task/scheduler/PullTaskExecutionDispatchCoordinator.java:208"
+  ],
+  "evidence": [
+    "live-preflight.tsv",
+    "task-52-prestart-preflight.tsv",
+    "task-52-prestart-status.jsonl",
+    "task-52-prestart-complete.tsv",
+    "task-52-running-1.tsv",
+    "task-52-running-2.tsv",
+    "task-52-running-3.tsv",
+    "task-52-blocked-final.tsv",
+    "task-52-readback-early.json",
+    "task-52-readback-final.json",
+    "task-52-backend-focused.log",
+    "task-52-retry-timeline.json"
+  ],
+  "scope": "Read-only DB, protocol status and group info/member queries only. No code edits, deploys, data changes, retry, resume, pause, cleanup or account occupancy release performed by this agent."
+}

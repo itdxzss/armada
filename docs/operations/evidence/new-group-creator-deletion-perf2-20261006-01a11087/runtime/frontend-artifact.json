@@ -1,0 +1,35 @@
+{
+  "observedAt": "2026-10-06T09:36:32.493589+00:00",
+  "matches": [
+    {
+      "path": "js/PullTaskStandardSavedSettings-BTIZ8rjt.js",
+      "sha256": "e9a4f8cb2cedf32d88db000049153f40524e5c4999057cb54fc68afa73d20944",
+      "markers": [
+        "管理员接管后注销建群账号",
+        "creatorDeleteAfterTakeover"
+      ]
+    },
+    {
+      "path": "js/PullTaskStandardSettings-oan1Sbpw.js",
+      "sha256": "10cbcfa27a37ecaa68d871a63bd3ec56af3cc037acd14cbe573b97e08d5a0380",
+      "markers": [
+        "管理员接管后注销建群账号",
+        "creatorDeleteAfterTakeover"
+      ]
+    },
+    {
+      "path": "js/index-DmNh5gnP.js",
+      "sha256": "4b20a16808360d96f5c19b617747c9c441fcd84b59454e1e486df9a3420ced8b",
+      "markers": [
+        "creatorDeleteAfterTakeover"
+      ]
+    },
+    {
+      "path": "js/pull-task-StOd7d6G.js",
+      "sha256": "ea39a2714b6ffd860e93f51262c63b6040b6ca6416120662b90b3bd5cabd6b88",
+      "markers": [
+        "creatorDeleteAfterTakeover"
+      ]
+    }
+  ]
+}

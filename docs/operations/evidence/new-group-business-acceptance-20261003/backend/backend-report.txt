@@ -1,0 +1,45 @@
+Armada NEW_GROUP 后端本次本地验收
+时间：2026-10-03 11:55–11:57 Asia/Shanghai
+仓库：/Users/daishuaishuai/IdeaProjects/armada
+分支：1.0.3-snapshot
+HEAD：0a900d181e1259440ad6e18289bb90574959e738
+边界：只读当前源码、运行现有本地测试；未修改源码或测试，未部署、未连接远程/真实数据库/WhatsApp。git-status-before.txt 与 after 完全相同。
+技能：已读取 .agents/skills/unit-test-ci/SKILL.md；遵循仅运行本次相关既有测试和真实H2要求。
+
+本次结果：16类135 tests，0失败、0错误、0跳过。Java 17.0.19（逐XML核实），Maven离线，显式Byte Buddy 1.14.19，headless。
+第一轮11类103 tests；第二轮5类32 tests。
+真实H2/MySQL mode、生产MyBatis租户插件/真实Mapper XML/事务包含：
+- PullTaskGroupProfileVerificationMapperTest：7（含1条迁移SQL结构检查）
+- PullTaskGroupCreateTransactionIntegrationTest：11
+- PullTaskPullWaveDispatchIntegrationTest：7
+- PullTaskStandardCreateServiceTest：23
+- PullTaskGroupSettingsApplyTimingIntegrationTest：8
+其中协议与账号查询依赖为替身，不代表真实WhatsApp业务成功。
+XML、全部testcase、运行时Java版本保存在 test-results.json 和 surefire/；日志 focused-tests.log、profile-compat-tests.log。
+
+当前源码规则（路径均相对armada/）：
+1. armada-api/src/main/java/com/armada/task/service/impl/PullTaskNewGroupModeValidator.java:44–105：NEW_GROUP才强制群名trim后1–100、简介trim后1–1024、enabled=true、BEFORE_PULL、禁止文件名、earlyPullCallCount=0、人数1–3、间隔10–15。
+2. armada-api/src/main/java/com/armada/task/service/impl/PullTaskStandardCreateTransactionService.java:64–65,118：实际提交先调用validate，后端独立校验，不能绕过前端直接冻结非法配置。
+3. armada-api/src/main/java/com/armada/task/scheduler/PullTaskGroupCreateTransactionService.java:83–129,159–172：固定不同creator/manager及可选station；创建请求只有群名和manager/station成员；159–161的初始成员不是业务料子。177–201取得JID后进入APPLY_PROFILE。
+4. armada-api/src/main/java/com/armada/task/service/impl/PullTaskGroupProfileDispatcher.java:90–127,154–158：建群阶段资料命令由PROMOTER建群人执行；成功/在途/UNKNOWN不盲目重发，明确失败最多3次。
+5. armada-api/src/main/java/com/armada/task/service/impl/PullTaskGroupProfilePayloadHydrator.java:136–156,164–173：完整资料命令携带冻结群名和trim简介，不依赖create请求写简介。
+6. armada-api/src/main/java/com/armada/task/scheduler/PullTaskGroupCreateProcessor.java:68–85：事务外从固定动作执行账号实时回读metadata，异常作为未确认交回事务层。
+7. armada-api/src/main/java/com/armada/task/scheduler/PullTaskGroupCreateTransactionService.java:255–301,307–347：检查执行版本/租约/阶段/动作身份；逐项比较JID、群名、简介；匹配才withProfileVerification推进；30秒后仍不匹配/无查询结果，manual_paused=1并保留同一JID/步骤。
+8. armada-api/src/main/resources/mapper/task/PullTaskGroupExecutionMapper.xml:476–510：profile_verified_at与profile_verified_command_id和步骤在同一CAS写入，受版本、租约和阶段保护；V209没有回填历史成功。
+9. armada-api/src/main/java/com/armada/task/service/impl/PullTaskGroupSettingsResultServiceImpl.java:210–230,341–357：回调只记录动作结果，不推进profile gate；验证action/tenant/task/execution/command/attempt；UNKNOWN回读通过不会在completeProfile中改写为SUCCESS。
+10. armada-api/src/main/java/com/armada/task/scheduler/PullTaskGroupCreateTransactionService.java:461–470：历史REGISTER_GROUP缺凭证回原群资料核验步骤。
+11. armada-api/src/main/java/com/armada/task/scheduler/PullTaskBatchAddTransactionService.java:175–188,205–223,239–259：实际batch add预检/提交前锁执行行检查两个凭证；缺失暂停；通过后才能enqueue并写submitted_at。
+12. PASTED_LINK在NewGroupModeValidator.java:45–48整体跳过；PullTaskStandardGroupSettingWriter.java:46–58,96–123允许可选群名/简介为空，关闭设置保存默认值。
+
+负向覆盖矩阵（本次运行，不混同真实环境）：
+- 空白/101字群名/1025字简介：ValidatorTest.rejectsEveryWayToSkipCompleteProfileBeforePull 覆盖。
+- 绕过前端：源码调用链确认后端校验；StandardCreateServiceTest.newGroupModeRejectsAnOmittedGroupSettingSwitchBeforeFreezingAnything 用H2证明非法必填开关不落库。未找到本次空白/超长资料参数经过完整HTTP入口的既有专项测试，未增加测试或远程造非法任务。
+- 设置SUCCESS但回读简介错：CreateTransactionIntegrationTest.protocolSuccessWithWrongDescriptionNeverReleasesMaterialPulling 验证同JID、step=4、manual_paused=1、pull_call=0。
+- 查询失败/超时：ProcessorTest.metadataFailurePassesUnconfirmedEvidenceToGate验证异常传null；事务层不一致超时分支H2验证同群暂停。缺少一个将协议查询异常一路贯穿真实H2暂停状态的单条集成用例，源码null与不一致走相同!confirmed分支。
+- 缺凭证实际拉料入口：PullWaveDispatchIntegrationTest.unverifiedNewGroupIsPausedBeforeAnyMaterialCommand 三种proof缺失变体，断言无outbox调用、call未提交、material未消费，verifiedNewGroupCanSubmitMaterials对照放行。
+- 旧命令/旧尝试：CreateTransactionIntegrationTest.expiredQueryAndLateAttemptCannotAdvanceTheExecution；SettingsResultServiceImplTest.mismatchedAttemptNoIsRejected、unknownCommandIsRejected；MapperTest失效version/租约、跨tenant/回滚。
+- UNKNOWN：CreateTransactionIntegrationTest.unknownProfileRequiresMatchingLiveMetadataAndKeepsUnknownActionFact，真实H2 action仍5、proof写入、步骤推进；重复complete返回LOST。
+- 链接模式兼容：ValidatorTest两条PASTED_LINK跳过；CreateServiceTest.linkModeSubmitLeavesCreationModeAtItsColumnDefault；TimingIntegrationTest覆盖disabled/BEFORE/AFTER既有路径。没有完整HTTP“PASTED_LINK开启设置且群名简介同时为空”的专项测试；当前writer源码允许，未将此当作线上兼容验收通过。
+- 边界正向缺口：现有validator未专门测trim后恰好100/1024上界、仅1字符、字段null；代码规则可读，但不要称每个边界均已有实测。
+
+本地无阻断失败。不得以此报告替代test1/perf2的真实资料回读、首笔料子时序及最终群成员核验。尚未运行全仓测试；未做共享环境失败注入。

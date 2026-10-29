@@ -1,0 +1,111 @@
+RUNTIME {"Status": "running", "StartedAt": "2026-09-14T17:43:05.346768166Z"}
+PUBLIC_BASE "http://armada.65.2.123.53.nip.io"
+TASK_RUNTIME
+id	tenant_id	task_name	is_short_link_enabled	message_type	run_status	recipient_total	send_total	success_num	delivered_num	click_uv_num	click_total	created_utc	updated_utc
+26	1	213	1	4	1	252	57	52	44	0	0	2026-09-14 22:58:08.3400	2026-09-15 02:12:23.0000
+25	1	212-虚拟号	0	4	1	104	30	29	27	0	0	2026-09-14 22:35:26.1550	2026-09-15 02:12:45.0710
+24	1	212	0	4	1	104	83	74	68	0	0	2026-09-14 19:24:55.8640	2026-09-15 02:12:20.9370
+23	1	HL0912-A8-普通号-145	0	3	3	40	1	1	0	0	0	2026-09-12 03:17:45.1070	2026-09-12 03:22:29.9260
+22	1	HL0912-A8-普通号-141	0	3	3	40	3	3	2	0	0	2026-09-12 03:17:43.5470	2026-09-12 03:22:29.9260
+21	1	HL0912-A8-普通号-153	0	3	3	40	3	3	2	0	0	2026-09-12 03:17:41.9560	2026-09-12 03:26:29.9910
+20	1	HL0912-A8-普通号-103	0	3	3	40	10	10	6	0	0	2026-09-12 03:17:40.4900	2026-09-12 03:24:29.9710
+19	1	HL0912-A8-普通号-71	0	3	3	41	7	7	3	0	0	2026-09-12 03:17:38.9470	2026-09-12 03:22:29.9260
+18	1	9-7	0	4	4	1018	206	0	0	0	0	2026-09-07 15:15:10.1190	2026-09-10 08:54:14.1680
+17	1	9-7测试	0	4	2	1018	1018	0	0	0	0	2026-09-07 14:22:00.6810	2026-09-09 12:20:48.2740
+16	1	QA-20260903-Android加密回环-1条	0	4	4	998	96	90	77	0	0	2026-09-07 09:14:00.5080	2026-09-10 08:54:14.0810
+15	1	QA-20260903-Android加密回环-1条	0	4	4	1018	20	10	10	0	0	2026-09-07 09:02:06.4940	2026-09-07 09:13:57.3370
+14	1	9-7测试巴西蓝标	0	4	4	1018	120	100	91	0	0	2026-09-06 17:25:25.5900	2026-09-10 08:54:13.9790
+13	1	QA-20260903-Android完整链路-1条	0	3	2	1	1	1	0	0	0	2026-09-03 13:15:54.1860	2026-09-03 13:17:08.1050
+12	1	9-2 in协议号测试	0	4	2	400	400	0	0	0	0	2026-09-02 15:12:25.5960	2026-09-02 15:15:03.1610
+8	1	831-C 副本 副本	0	4	3	13949	400	255	242	0	0	2026-08-31 18:06:08.2660	2026-08-31 22:05:18.1750
+7	1	831-C 副本	0	4	2	6	6	6	6	0	0	2026-08-31 18:02:57.4610	2026-08-31 18:03:32.5140
+6	1	831-C 副本	0	4	3	13949	87	82	73	0	0	2026-08-31 17:51:32.1050	2026-08-31 21:03:18.0720
+5	1	9-1C	0	4	2	10	10	0	0	0	0	2026-08-31 16:18:28.3050	2026-08-31 16:19:30.3960
+4	1	831-C	0	4	2	16	16	6	2	0	0	2026-08-31 14:53:59.9260	2026-08-31 14:54:30.2080
+3	1	31日测试 副本	0	4	2	16	16	6	2	0	0	2026-08-31 11:40:01.8110	2026-08-31 11:40:29.8950
+2	1	撒旦撒	0	3	2	6	6	6	6	0	0	2026-08-31 08:56:06.5440	2026-08-31 09:07:29.6870
+1	1	测试超链	1	3	4	201	10	10	9	0	0	2026-08-31 08:05:47.9780	2026-08-31 12:01:29.9340
+
+RECIPIENT_CLICK_FACTS
+hyperlink_task_id	recipients	with_short_code	submitted	single_check	clicked_recipients	click_total	first_visits	first_click_utc	last_click_utc
+26	252	57	57	52	0	0	0	NULL	NULL
+25	104	0	30	29	0	0	0	NULL	NULL
+24	104	0	83	74	0	0	0	NULL	NULL
+23	40	0	1	1	0	0	0	NULL	NULL
+22	40	0	3	3	0	0	0	NULL	NULL
+21	40	0	3	3	0	0	0	NULL	NULL
+20	40	0	10	10	0	0	0	NULL	NULL
+19	41	0	7	7	0	0	0	NULL	NULL
+18	1018	0	206	0	0	0	0	NULL	NULL
+17	1018	0	1018	0	0	0	0	NULL	NULL
+16	998	0	96	90	0	0	0	NULL	NULL
+15	1018	0	20	10	0	0	0	NULL	NULL
+14	1018	0	120	100	0	0	0	NULL	NULL
+13	1	0	1	1	0	0	0	NULL	NULL
+12	400	0	400	0	0	0	0	NULL	NULL
+8	13949	0	400	255	0	0	0	NULL	NULL
+7	6	0	6	6	0	0	0	NULL	NULL
+6	13949	0	87	82	0	0	0	NULL	NULL
+5	10	0	10	0	0	0	0	NULL	NULL
+4	16	0	16	6	0	0	0	NULL	NULL
+3	16	0	16	6	0	0	0	NULL	NULL
+2	6	0	6	6	0	0	0	NULL	NULL
+1	201	10	10	10	0	0	0	NULL	NULL
+
+CONTENT_SHORTLINK_FLAGS
+hyperlink_task_id	message_type	has_promotion_link	button_shortlink_flags
+26	4	0	[true]
+25	4	0	[false]
+24	4	0	[false]
+23	3	0	[false]
+22	3	0	[false]
+21	3	0	[false]
+20	3	0	[false]
+19	3	0	[false]
+18	4	0	[false]
+17	4	0	[false]
+16	4	0	[false]
+15	4	0	[false]
+14	4	0	[false]
+13	3	0	[false]
+12	4	0	[false]
+8	4	0	[false]
+7	4	0	[false]
+6	4	0	[false]
+5	4	0	[false]
+4	4	0	[false]
+3	4	0	[false]
+2	3	0	[false]
+1	3	0	[true]
+
+OUTBOX_SCHEMA
+COLUMN_NAME	DATA_TYPE
+id	bigint
+tenant_id	bigint
+command_id	varchar
+batch_id	varchar
+command_type	varchar
+aggregate_type	varchar
+aggregate_id	bigint
+kafka_topic	varchar
+kafka_key	varchar
+protocol_account_id	varchar
+protocol_backend	varchar
+payload_json	json
+trace_id	varchar
+status	tinyint
+retry_count	int
+next_retry_at	bigint
+locked_by	varchar
+locked_at	bigint
+sent_at	bigint
+last_error	varchar
+created_at	bigint
+updated_at	bigint
+deleted_at	bigint
+retention_class	tinyint
+
+NGINX_META {"name": "armada-nginx", "started": "2026-09-14T17:43:05.511883863Z", "logDriver": {"Type": "json-file", "Config": {"max-file": "5", "max-size": "500m"}}, "mounts": [{"src": "/home/app/armada-deploy/logs/nginx", "dst": "/var/log/nginx"}]}
+NGINX_ROUTES {"name": "armada-nginx", "lines": ["-rw-r--r--    1 root     root       38.4M Sep 15 02:10 armada.access.log", "-rw-r--r--    1 root     root        1.2M Sep 14 22:57 armada.error.log", "error_log  /var/log/nginx/error.log notice;", "    access_log  /var/log/nginx/access.log  main;", "    listen 80;", "    server_name _;", "    access_log /var/log/nginx/armada.access.log;", "    error_log  /var/log/nginx/armada.error.log warn;", "    location /api/ {", "        proxy_pass http://armada_backend;", "    location ^~ /static/js/ {", "    location = /stale-chunk-reload.js {", "    location ^~ /static/ {", "    location ~ \"^/[A-Za-z0-9_-]{6,32}(?:/[0-9]{1,32})?/?$\" {", "    location ^~ /assets/ {", "    location / {"]}
+NGINX_META {"name": "armada-deploy-device-ingest-nginx-1", "started": "2026-09-07T06:51:14.292363277Z", "logDriver": {"Type": "json-file", "Config": {"max-file": "2", "max-size": "10m"}}, "mounts": [{"src": "/etc/armada-ingest/tls", "dst": "/etc/nginx/tls"}, {"src": "/home/app/armada-deploy/device-ingest/nginx.conf.template", "dst": "/etc/nginx/templates/default.conf.template"}]}
+NGINX_ROUTES {"name": "armada-deploy-device-ingest-nginx-1", "lines": ["error_log  /var/log/nginx/error.log notice;", "    access_log  /var/log/nginx/access.log  main;", "    listen 443 ssl default_server;", "    listen [::]:443 ssl default_server;", "    server_name ingest.65.2.123.53.nip.io;", "    access_log off;", "    error_log /dev/null crit;", "    proxy_pass_request_headers off;", "    location = /api/device-imports {", "        # location 使用归一化 URI；再校验原文才能拒绝编码、双斜线、点路径别名。", "        proxy_pass http://backend:8080;", "    location = /api/device-imports/logout-confirmed {", "        proxy_pass http://backend:8080;", "    location / { return 404; }", "    location @bad_request { return 400 '{\"message\":\"请求格式或路径不正确\"}'; }", "    location @unauthorized { return 401 '{\"message\":\"导入令牌无效\"}'; }", "    location @forbidden { return 403 '{\"message\":\"导入请求被拒绝\"}'; }", "    location @not_found { return 404 '{\"message\":\"$device_ingest_not_found\"}'; }", "    location @method_not_allowed {", "    location @not_acceptable { return 406 '{\"message\":\"响应仅支持 application/json\"}'; }", "    location @request_timeout { return 408 '{\"message\":\"请求超时，请重试\"}'; }", "    location @conflict { return 409 '{\"message\":\"账号已导入或正在上线，请在控端查看并处理\"}'; }", "    location @too_large { return 413 '{\"message\":\"请求内容过大\"}'; }", "    location @media_type { return 415 '{\"message\":\"请求必须使用 application/json\"}'; }", "    location @server_error { return 500 '{\"message\":\"导入服务暂不可用，请稍后重试\"}'; }", "    location @bad_gateway { return 502 '{\"message\":\"导入服务暂不可用，请稍后重试\"}'; }", "    location @unavailable { return 503 '{\"message\":\"导入服务或配置暂不可用，请联系管理员\"}'; }", "    location @gateway_timeout { return 504 '{\"message\":\"请求超时，请在控端核对导入结果\"}'; }"]}

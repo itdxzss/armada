@@ -1,0 +1,24 @@
+{
+  "observedUtc": "2026-10-06T23:23:56.494222+00:00",
+  "indexSha256": "2d4afdd43afc9e23038e62b8323a5d0e5164a430a3c7121147e4fd6aa575d80a",
+  "scripts": [
+    "/static/js/index-CSpkRA-j.js"
+  ],
+  "assets": [
+    {
+      "path": "/static/js/index-CSpkRA-j.js",
+      "sha256": "02974ec8afb58aead7250cee67679dc7b1acdce72a8d41146346445f21a531ce"
+    },
+    {
+      "path": "/static/js/index-cF17f5C8.js",
+      "sha256": "23807649a822d96bb40cd32523e0337471b96707e190c34b9fe62d3dccc75134",
+      "markers": {
+        "accepted===0": true,
+        "部分受理": true,
+        "未受理": true,
+        "batchErrors": true,
+        "下线请求已提交": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+stress_pn_repeatable 25 {'success': 23, 'matching_gap_cycle': 2}
+stress_pn_repeatable 50 {'success': 45, 'matching_gap_cycle': 5}
+stress_pn_repeatable 75 {'success': 64, 'matching_gap_cycle': 11}
+stress_pn_repeatable 100 {'success': 81, 'matching_gap_cycle': 19}
+stress_empty_repeatable 25 {'success': 25}
+stress_empty_repeatable 50 {'success': 50}
+stress_empty_repeatable 75 {'success': 75}
+stress_empty_repeatable 100 {'success': 100}
+stress_existing_repeatable 25 {'success': 25}
+stress_existing_repeatable 50 {'success': 50}
+stress_existing_repeatable 75 {'success': 75}
+stress_existing_repeatable 100 {'success': 100}
+stress_pn_read 25 {'success': 22, 'other_deadlock': 1, 'matching_gap_cycle': 2}
+stress_pn_read 50 {'success': 42, 'other_deadlock': 1, 'matching_gap_cycle': 7}
+stress_pn_read 75 {'success': 60, 'other_deadlock': 2, 'matching_gap_cycle': 13}
+stress_pn_read 100 {'success': 82, 'other_deadlock': 3, 'matching_gap_cycle': 15}
+stress_empty_read 25 {'success': 25}
+stress_empty_read 50 {'success': 50}
+stress_empty_read 75 {'success': 75}
+stress_empty_read 100 {'success': 100}
+stress_existing_read 25 {'success': 25}
+stress_existing_read 50 {'success': 50}
+stress_existing_read 75 {'success': 75}
+stress_existing_read 100 {'success': 100}

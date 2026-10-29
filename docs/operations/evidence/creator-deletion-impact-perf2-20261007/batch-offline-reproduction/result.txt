@@ -1,0 +1,73 @@
+Reproduction: python3 /private/tmp/creator-deletion-legacy-batch-h2/run-probe.py
+Current production source compiled: src/main/java/com/armada/account/service/impl/AccountBatchLifecycleServiceImpl.java, src/main/java/com/armada/account/service/impl/AccountOnlineCommandServiceImpl.java, src/main/java/com/armada/platform/protocol/service/impl/ProtocolCommandOutboxServiceImpl.java, src/main/java/com/armada/platform/protocol/exception/ProtocolAccountCommandRejectedException.java
+Runtime source resources precede target classes: true; actual MyBatis Mapper + tenant plugin + Spring DataSourceTransactionManager; synthetic H2 only
+
+注: /private/tmp/creator-deletion-legacy-batch-h2/LegacyBatchOfflineProbe.java使用或覆盖了已过时的 API。
+注: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+
+exit_code=0
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+08:03:18.982 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线开始 requested=2 protocolBackendFromRequest=true
+legacyAccounts phase=RESERVED exception=ProtocolAccountCommandRejectedException
+legacyAccounts protectedDesired=1 healthyDesired=1 healthyOldOnlineStatus=0 offlineOutbox=0 dispatches=0 foreignDesired=1
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+08:03:19.168 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排开始 operation=OFFLINE scope=IDS requested=2
+08:03:19.175 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线开始 requested=2
+08:03:19.183 [main] WARN com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量生命周期受限 operation=OFFLINE chunkIndex=1 rejected=1 remaining=1
+08:03:19.183 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线开始 requested=1
+08:03:19.191 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=null commandCount=1 inserted=1
+08:03:19.192 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线 outbox 已受理 requested=1 submitted=1 accepted=1 error=0 elapsedMs=0 canceledOnlineCommands=1 batchId=null commandIds=1
+08:03:19.194 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次已处理 operation=OFFLINE chunkIndex=1 requested=1 accepted=1
+08:03:19.195 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排完成 operation=OFFLINE scope=IDS requested=2 submitted=2 accepted=1 skipped=0 failed=1
+idsOrchestrator phase=RESERVED accepted=1 failed=1 healthyDesired=2 healthyOldOnlineStatus=4 offlineOutboxAccount=2 dispatchedAfterCommit=2
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+08:03:19.240 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线开始 requested=2 protocolBackendFromRequest=true
+legacyAccounts phase=DELETING exception=ProtocolAccountCommandRejectedException
+legacyAccounts protectedDesired=1 healthyDesired=1 healthyOldOnlineStatus=0 offlineOutbox=0 dispatches=0 foreignDesired=1
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+08:03:19.283 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排开始 operation=OFFLINE scope=IDS requested=2
+08:03:19.286 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线开始 requested=2
+08:03:19.291 [main] WARN com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量生命周期受限 operation=OFFLINE chunkIndex=1 rejected=1 remaining=1
+08:03:19.291 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线开始 requested=1
+08:03:19.298 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=null commandCount=1 inserted=1
+08:03:19.299 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线 outbox 已受理 requested=1 submitted=1 accepted=1 error=0 elapsedMs=0 canceledOnlineCommands=1 batchId=null commandIds=1
+08:03:19.299 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次已处理 operation=OFFLINE chunkIndex=1 requested=1 accepted=1
+08:03:19.299 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排完成 operation=OFFLINE scope=IDS requested=2 submitted=2 accepted=1 skipped=0 failed=1
+idsOrchestrator phase=DELETING accepted=1 failed=1 healthyDesired=2 healthyOldOnlineStatus=4 offlineOutboxAccount=2 dispatchedAfterCommit=2
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+08:03:19.344 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线开始 requested=2 protocolBackendFromRequest=true
+legacyAccounts phase=DELETED exception=ProtocolAccountCommandRejectedException
+legacyAccounts protectedDesired=1 healthyDesired=1 healthyOldOnlineStatus=0 offlineOutbox=0 dispatches=0 foreignDesired=1
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+08:03:19.379 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排开始 operation=OFFLINE scope=IDS requested=2
+08:03:19.383 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线开始 requested=2
+08:03:19.390 [main] WARN com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量生命周期受限 operation=OFFLINE chunkIndex=1 rejected=1 remaining=1
+08:03:19.390 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线开始 requested=1
+08:03:19.398 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=null commandCount=1 inserted=1
+08:03:19.398 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线 outbox 已受理 requested=1 submitted=1 accepted=1 error=0 elapsedMs=0 canceledOnlineCommands=1 batchId=null commandIds=1
+08:03:19.399 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次已处理 operation=OFFLINE chunkIndex=1 requested=1 accepted=1
+08:03:19.399 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排完成 operation=OFFLINE scope=IDS requested=2 submitted=2 accepted=1 skipped=0 failed=1
+idsOrchestrator phase=DELETED accepted=1 failed=1 healthyDesired=2 healthyOldOnlineStatus=4 offlineOutboxAccount=2 dispatchedAfterCommit=2
+PASS: source-compiled production services, real Mapper XML, real Spring transactions, synthetic H2; only external dispatcher/proxy collaborators mocked, no Mapper mocks and no live calls
+
+OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader classes because bootstrap classpath has been appended
+
+exit_code=0

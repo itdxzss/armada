@@ -1,0 +1,525 @@
+Browser tab: [redacted-number], Title: "拉群任务 | 第二套环境", URL: "http://3.110.124.52/?#/task/pull".
+0 AXWebArea 拉群任务 | 第二套环境, URL: 3.110.124.52/?#/task/pull
+	1 image
+	2 container
+		3 link Description: logo 第二套环境, Value: 3.110.124.52/?#/welcome
+		4 menu bar
+			5 link Description: 首页, Value: 3.110.124.52/?#/
+			6 (collapsed) 账号管理, Secondary Actions: Expand
+				7 container
+					8 image
+					9 text 账号管理
+					10 image
+			11 (expanded) 任务中心, Secondary Actions: Collapse
+				12 container
+					13 image
+					14 text 任务中心
+					15 image
+				16 menu
+					17 link Description: 账号导入, Value: 3.110.124.52/?#/account/import
+					18 link Description: 导入链接, Value: 3.110.124.52/?#/task/group-link/imports
+					19 link Description: 群组列表, Value: 3.110.124.52/?#/group/list
+					20 link Description: 历史群管理, Value: 3.110.124.52/?#/group/history
+					21 link Description: 拉群任务, Value: 3.110.124.52/?#/task/pull
+					22 link Description: 拉群数据包, Value: 3.110.124.52/?#/resource/group-data-package
+					23 link Description: 进群任务, Value: 3.110.124.52/?#/task/join
+					24 link Description: 营销任务, Value: 3.110.124.52/?#/task/group-marketing
+					25 link Description: 拉群营销, Value: 3.110.124.52/?#/task/group-pull-marketing
+					26 link Description: 建群营销, Value: 3.110.124.52/?#/task/group-creation-marketing
+			27 (collapsed) 动态营销, Secondary Actions: Expand
+				28 container
+					29 image
+					30 text 动态营销
+					31 image
+			32 (collapsed) 养群管理, Secondary Actions: Expand
+				33 container
+					34 image
+					35 text 养群管理
+					36 image
+			37 (collapsed) 素材管理, Secondary Actions: Expand
+				38 container
+					39 image
+					40 text 素材管理
+					41 image
+			42 (collapsed) 运营管理, Secondary Actions: Expand
+				43 container
+					44 image
+					45 text 运营管理
+					46 image
+			47 (collapsed) 超链营销, Secondary Actions: Expand
+				48 container
+					49 image
+					50 text 超链营销
+					51 image
+			52 (collapsed) 通讯录营销, Secondary Actions: Expand
+				53 container
+					54 image
+					55 text 通讯录营销
+					56 image
+			57 (collapsed) 买号上量, Secondary Actions: Expand
+				58 container
+					59 image
+					60 text 买号上量
+					61 image
+			62 (collapsed) 系统管理, Secondary Actions: Expand
+				63 container
+					64 image
+					65 text 系统管理
+					66 image
+		67 image
+		68 container
+			69 container 面包屑
+				70 link 任务中心
+					71 link 任务中心
+						72 text 任务中心
+				73 text /
+				74 link 拉群任务
+					75 link 拉群任务
+						76 text 拉群任务
+			77 pop up button (collapsed) 7, ID: header-notice, Secondary Actions: Expand
+				78 container
+					79 image
+					80 text 7
+			81 pop up button (collapsed) 管理员, ID: el-id-7133-19, Secondary Actions: Expand
+				82 image
+				83 text 管理员
+			84 container
+				85 text 首页 拉群任务
+			86 pop up button (collapsed) ID: el-id-7133-25, Secondary Actions: Expand
+				87 image
+		364 container
+			365 container 拉群任务
+				366 container
+					367 text ID
+					368 text field (settable) ID, ID: el-id-7133-96
+					369 text 任务名称
+					370 text field (settable) 任务名称, ID: el-id-7133-97
+					371 text 任务状态
+					372 container
+						373 combo box (collapsed, settable) 任务状态, ID: el-id-7133-98, Secondary Actions: Expand
+						374 text 请选择
+						375 image
+					376 container
+						377 button 查询
+							378 text 查询
+						379 button 重置
+							380 text 重置
+						381 button 展开搜索条件
+				382 text 拉群任务
+				383 button 全局设置
+					384 text 全局设置
+				385 button 新建拉群任务
+					386 text 新建拉群任务
+				387 button (disabled) 批量删除
+					388 text 批量删除
+				389 image
+				390 pop up button (collapsed) ID: el-id-7133-65, Secondary Actions: Expand
+				391 image
+				392 image
+				393 container
+					394 table
+						395 row
+							396 cell
+								397 checkbox (settable, integer) Value: 0, ID: el-id-7133-111
+							398 cell
+								399 text 任务信息
+							400 cell
+								401 text 任务状态
+							402 cell
+								403 text 群组处理进度
+							404 cell
+								405 text 拉人结果
+							406 cell
+								407 text 营销进度
+							408 cell
+								409 text 消息发送
+							410 cell
+								411 text 异常情况
+							412 cell
+								413 text 剩余资源
+							414 cell
+								415 text 时间/操作
+					616 table
+						617 container
+							618 row
+								619 cell
+									620 checkbox (settable, integer) Value: 0, ID: el-id-7133-543
+								621 cell
+									622 text NG验收-perf2-[redacted-number]-1230
+									623 text #52｜普通拉群｜--
+									624 text 新群模式
+									625 text 创建人：管理员
+								626 cell
+									627 text 进行中
+									628 text --
+								629 cell
+									630 container
+										631 text 0/1
+										632 progress indicator 0
+								633 cell
+									634 container
+										635 text 0/6 有效成功率 0.0%
+								636 cell
+									637 text --
+								638 cell
+									639 text --
+								640 cell
+									641 text 无异常
+								642 cell
+									643 text 目标数据 6 可用拉手 0
+								644 cell
+									645 text 创建时间 2026-10-03 12:32:02 最近执行 2026-10-03 12:38:00
+									646 button 查看详情
+									647 button 暂停
+									648 button 结束
+							649 row
+								650 cell
+									651 checkbox (settable, integer) Value: 0, ID: el-id-7133-122
+								652 cell
+									653 text 任务_89182608
+									654 text #51｜普通拉群｜--
+									655 text 群链接模式（新）
+									656 text 创建人：小白
+								657 cell
+									658 text 已完成
+									659 text --
+								660 cell
+									661 container
+										662 text 5/5
+										663 progress indicator 100
+								664 cell
+									665 container
+										666 text 0/510 有效成功率 0.0%
+								667 cell
+									668 text --
+								669 cell
+									670 text --
+								671 cell
+									672 text 异常群组5（ 缺拉手0 / 缺站台0） 封禁账号--
+								673 cell
+									674 text 目标数据 0 可用拉手 0
+								675 cell
+									676 text 创建时间 2026-09-27 14:08:37 最近执行 2026-09-27 14:09:43
+									677 button 查看详情
+									678 button 删除
+							679 row
+								680 cell
+									681 checkbox (settable, integer) Value: 0, ID: el-id-7133-123
+								682 cell
+									683 text 任务_89065384
+									684 text #50｜普通拉群｜--
+									685 text 群链接模式（新）
+									686 text 创建人：小白
+								687 cell
+									688 text 已完成
+									689 text --
+								690 cell
+									691 container
+										692 text 1/1
+										693 progress indicator 100
+								694 cell
+									695 container
+										696 text 0/102 有效成功率 0.0%
+								697 cell
+									698 text --
+								699 cell
+									700 text --
+								701 cell
+									702 text 异常群组1（ 缺拉手0 / 缺站台0） 封禁账号--
+								703 cell
+									704 text 目标数据 1 可用拉手 0
+								705 cell
+									706 text 创建时间 2026-09-27 14:06:23 最近执行 2026-09-27 14:06:37
+									707 button 查看详情
+									708 button 删除
+							709 row
+								710 cell
+									711 checkbox (settable, integer) Value: 0, ID: el-id-7133-124
+								712 cell
+									713 text 任务_17828544
+									714 text #49｜普通拉群｜--
+									715 text 群链接模式（新）
+									716 text 创建人：小白
+								717 cell
+									718 text 任务已结束
+									719 text 人工结束
+								720 cell
+									721 container
+										722 text 5/5
+										723 progress indicator 100
+								724 cell
+									725 container
+										726 text 0/1,005 有效成功率 0.0%
+								727 cell
+									728 text --
+								729 cell
+									730 text --
+								731 cell
+									732 text 异常群组5（ 缺拉手0 / 缺站台0） 封禁账号--
+								733 cell
+									734 text 目标数据 0 可用拉手 0
+								735 cell
+									736 text 创建时间 2026-09-19 19:37:53 最近执行 2026-09-19 19:45:23
+									737 button 查看详情
+									738 button 删除
+							739 row
+								740 cell
+									741 checkbox (settable, integer) Value: 0, ID: el-id-7133-125
+								742 cell
+									743 text 任务_13077084
+									744 text #48｜普通拉群｜--
+									745 text 群链接模式（新）
+									746 text 创建人：管理员
+								747 cell
+									748 text 任务已结束
+									749 text 人工结束
+								750 cell
+									751 container
+										752 text 5/5
+										753 progress indicator 100
+								754 cell
+									755 container
+										756 text 161/1,005 有效成功率 16.0%
+								757 cell
+									758 text --
+								759 cell
+									760 text --
+								761 cell
+									762 text 异常群组4（ 缺拉手0 / 缺站台0） 封禁账号--
+								763 cell
+									764 text 目标数据 0 可用拉手 0
+								765 cell
+									766 text 创建时间 2026-09-19 18:18:57 最近执行 2026-09-19 18:27:38
+									767 button 查看详情
+									768 button 删除
+							769 row
+								770 cell
+									771 checkbox (settable, integer) Value: 0, ID: el-id-7133-126
+								772 cell
+									773 text 任务_90099496
+									774 text #47｜普通拉群｜--
+									775 text 群链接模式
+									776 text 创建人：小白
+								777 cell
+									778 text 已完成
+									779 text --
+								780 cell
+									781 container
+										782 text 5/5
+										783 progress indicator 100
+								784 cell
+									785 container
+										786 text 0/510 有效成功率 0.0%
+								787 cell
+									788 text --
+								789 cell
+									790 text --
+								791 cell
+									792 text 异常群组5（ 缺管理员0 /  缺拉手0 / 缺站台0） 封禁账号--
+								793 cell
+									794 text 目标数据 0 可用拉手 0
+								795 cell
+									796 text 创建时间 2026-09-19 15:59:04 最近执行 2026-09-27 14:27:28
+									797 button 查看详情
+									798 button 删除
+				600 text 共 6 条
+				601 container
+					602 combo box (collapsed, settable) ID: el-id-7133-103, Secondary Actions: Expand
+					603 text 10条/页
+					604 image
+				605 button (disabled) 上一页
+				606 content list
+					607 container 第 1 页
+						608 text 1
+				609 button (disabled) 下一页
+				610 text 前往
+				611 stepper (settable, integer) Description: 页, Value: 1, ID: el-id-7133-104
+				612 text 页
+				799 container 拉群任务详情
+					800 container
+					801 container
+						802 heading 拉群任务详情, Value: 2, ID: el-id-7133-84
+							803 text 拉群任务详情
+						804 button 关闭此对话框
+					805 container el-id-7133-85
+						806 text NG验收-perf2-[redacted-number]-1230
+						807 text 新群模式
+						808 button 暂停
+						809 button 结束
+						973 text 数据截至：2026-10-03 12:47:47
+						811 container
+							812 checkbox (settable, integer) Description: 自动刷新（10 秒）, Value: 1
+							813 text 自动刷新（10 秒）
+						814 button 刷新
+						896 text 群组总数
+						897 text 1
+						898 text 执行中
+						899 text 1
+						900 text 等待资源
+						901 text 0
+						902 text 已完成
+						903 text 0
+						904 text 执行失败
+						905 text 0
+						906 text 已取消
+						907 text 0
+						908 button (collapsed) 已保存任务配置, ID: el-collapse-head-597, Secondary Actions: Expand
+							909 text 已保存任务配置
+						832 container
+							833 text 任务情况
+							834 container
+								835 combo box (collapsed, settable) 任务情况, ID: el-id-7133-591, Secondary Actions: Expand
+								836 text 请选择
+								837 image
+							838 text 群名 / 料子
+							839 text field (settable) 群名 / 料子, ID: el-id-7133-592
+							840 text 当前阶段
+							841 container
+								842 combo box (collapsed, settable) 当前阶段, ID: el-id-7133-593, Secondary Actions: Expand
+								843 text 请选择
+								844 image
+							845 text 资源异常
+							846 container
+								847 combo box (collapsed, settable) 资源异常, ID: el-id-7133-594, Secondary Actions: Expand
+								848 text 请选择
+								849 image
+							850 container
+								851 button 查询
+								852 button 重置
+						910 container
+							911 table
+								912 row
+									913 cell
+										914 text 序号
+									915 cell
+										916 text 群组名称
+									917 cell
+										918 text 群组
+									919 cell
+										920 text 料子包名称
+									921 cell
+										922 text 任务情况
+									923 cell
+										924 text 当前阶段
+									925 cell
+										926 text 料子进度
+									927 cell
+										928 text 执行资源（当前/计划）
+									929 cell
+										930 text 当前异常
+									931 cell
+										932 text 最近执行时间
+									933 cell
+										934 text 操作
+							935 table
+								936 row
+									937 cell
+										938 text 1
+									939 cell
+										940 text NG验收-perf2-[redacted-number]-1230
+									941 cell
+										942 container
+											943 text NG验收-perf2-[redacted-number]-1230 [invite-redacted]
+									944 cell
+										945 text A8-XA747-perf2-accept-6.txt
+									946 cell
+										947 text 添加执行中
+										948 text 等待下次调度
+									949 cell
+										950 text 管理员进群
+									951 cell
+										952 text 成功 0 人 / 失败 0 人 / 结果未知 0 人
+										953 text 等待结果 0 人 / 待执行 6 人（其中待重试 0 人）
+										954 text 累计尝试 0 次 / 其中结果未确认 0 次
+									955 cell
+										956 container
+											957 text 管理员：0/1（缺 1）
+											958 text 拉手：0/1（缺 1）
+											959 text 站台：0/0
+									960 cell
+										961 text -
+										962 text 尚未到本群下一次调度检查时间
+										963 text 下一步：到期后调度器重新检查执行条件
+									964 cell
+										965 text 2026-10-03 12:38:50
+										974 text 下次调度检查：5 秒后
+									967 cell
+										968 container
+											969 button 查看明细
+											970 button 暂停
+											971 button 结束
+						972 text 共 1 条
+						883 container
+							884 combo box (collapsed, settable) ID: el-id-7133-595, Secondary Actions: Expand
+							885 text 10条/页
+							886 image
+						887 button (disabled) 上一页
+						888 content list
+							889 container 第 1 页
+								890 text 1
+						891 button (disabled) 下一页
+						892 text 前往
+						893 stepper (settable, integer) Description: 页, Value: 1, ID: el-id-7133-596
+						894 text 页
+			613 container
+				614 text Copyright © 2020-present
+				615 link Description:  第二套环境, Value: github.com/pure-admin
+		307 container
+			308 heading 系统配置, Value: 4
+				309 text 系统配置
+			310 image
+			311 container
+				312 text 整体风格
+				313 container
+					314 radio button (settable, integer) Description: 浅色, Value: 0
+					315 image
+					316 text 浅色
+					317 radio button (settable, integer) Description: 深色, Value: 0
+					318 image
+					319 text 深色
+					320 radio button (settable, integer) Description: 自动, Value: 0
+					321 image
+					322 text 自动
+				323 text 主题色
+				324 text 导航模式
+				325 text 页宽
+				326 container
+					327 radio button (settable, integer) Description: 固定, Value: 0
+					328 text 固定
+					329 radio button (settable, integer) Description: 自定义, Value: 0
+					330 text 自定义
+				331 button
+					332 image
+					333 image
+				334 text 页签风格
+				335 container
+					336 radio button (settable, integer) Description: 灵动, Value: 0
+					337 text 灵动
+					338 radio button (settable, integer) Description: 卡片, Value: 0
+					339 text 卡片
+					340 radio button (settable, integer) Description: 谷歌, Value: 0
+					341 text 谷歌
+				342 text 界面显示
+				343 content list
+					344 container
+						345 text 灰色模式
+						346 switch (settable, boolean) Value: 0, ID: el-id-7133-105
+					347 container
+						348 text 色弱模式
+						349 switch (settable, boolean) Value: 0, ID: el-id-7133-106
+					350 container
+						351 text 隐藏标签页
+						352 switch (settable, boolean) Value: 0, ID: el-id-7133-107
+					353 container
+						354 text 隐藏页脚
+						355 switch (settable, boolean) Value: 0, ID: el-id-7133-108
+					356 container
+						357 text Logo
+						358 switch (settable, boolean) Value: 1, ID: el-id-7133-109
+						359 text 开
+					360 container
+						361 text 页签持久化
+						362 switch (settable, boolean) Value: 0, ID: el-id-7133-110
+			363 button 清空缓存
+
+The focused UI element is 800 container

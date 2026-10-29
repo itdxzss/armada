@@ -1,0 +1,7 @@
+controllers=71 endpoints=374 output=/private/var/folders/m9/6_vkj38n117c5rfr0cjw8zg40000gn/T/tmpoethcc5p/armada_endpoints.json
+rendered controllers=71 endpoints=374 output=/private/var/folders/m9/6_vkj38n117c5rfr0cjw8zg40000gn/T/tmpoethcc5p/接口协议.md
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.439s
+
+OK

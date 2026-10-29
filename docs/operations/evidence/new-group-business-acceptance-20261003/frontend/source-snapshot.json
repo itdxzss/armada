@@ -1,0 +1,15 @@
+{
+  "head": "583caf513c8f9075094f6122ac7e39ed578f5228",
+  "branch": "1.0.3-snapshot",
+  "node": "v23.11.0",
+  "files": {
+    "src/views/task/pull-task/standard-create-policy.ts": "d0bf9ee81f90e199a11aed5f3622ec5e09061e478ad94dc906772291ed8d4e63",
+    "src/views/task/pull-task/composables/useStandardPullTaskCreate.ts": "cefb992f22e01fdf343c1d28e9e5e8ce69070274418f7de13b21eb3ecd4eba23",
+    "src/views/task/pull-task/composables/useStandardPullTaskCreate.test.ts": "5a89f08c0cc1f93f7efd38dec41840726576971b69ab06f66ad82c7d331f8585",
+    "src/views/task/pull-task/components/PullTaskStandardGroupSettings.vue": "2fe50681bc106793f61ca1b73e444c9813d997ffa27bcd7b612c699c37906d03",
+    "src/views/task/pull-task/components/PullTaskStandardSettings.vue": "18c705bf2b8c7da558f888ccaccdefccdc07f2b279fe0f22dc5b3fbbf4116fc9",
+    "src/views/task/pull-task/components/PullTaskStandardCreateLayout.test.ts": "21b5a02f72b2ad8c2fabb5dd1b15c2aafe312b3a8730d0e68289253c24a49c65",
+    "src/views/task/pull-task/composables/useStandardPullTaskDataPackages.test.ts": "419a11259ef2db6170a992fdf9f387d6991fb5a7a9ff6644cbc17eecc1294edb",
+    "src/api/pull-task.test.ts": "ff3fbfab84f2140ea6d3f616f887913ea1cf5ee1ed8fcb900c57079f6807bb37"
+  }
+}

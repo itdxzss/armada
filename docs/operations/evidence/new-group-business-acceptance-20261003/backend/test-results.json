@@ -1,0 +1,337 @@
+{
+  "commit": "0a900d181e1259440ad6e18289bb90574959e738",
+  "suiteCount": 16,
+  "tests": 135,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "results": [
+    {
+      "name": "com.armada.platform.protocol.model.command.ProtocolPullTaskGroupProfilePayloadSerializationTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "0.139",
+      "java.version": "17.0.19",
+      "java.home": "/Users/daishuaishuai/Library/Java/JavaVirtualMachines/ms-17.0.19/Contents/Home",
+      "cases": [
+        "emptySettingItemsDisappearFromJson",
+        "filledSettingItemsAreSerialized",
+        "routingFactsAreAlwaysSerialized",
+        "serializedJsonNeverCarriesNullLiteral"
+      ]
+    },
+    {
+      "name": "com.armada.task.mapper.PullTaskGroupProfileVerificationMapperTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "0.58",
+      "java.version": "17.0.19",
+      "java.home": "/Users/daishuaishuai/Library/Java/JavaVirtualMachines/ms-17.0.19/Contents/Home",
+      "cases": [
+        "rollbackRemovesEvidenceAndStepAdvanceTogether",
+        "verificationEvidenceAndStepAdvancePersistTogether",
+        "canceledLeaseCannotWriteProofOrAdvanceStep",
+        "staleVersionCannotWriteProofOrAdvanceStep",
+        "unrelatedCheckpointDoesNotEraseExistingVerificationEvidence",
+        "migrationAddsNullableGuardedColumnsWithoutClaimingHistoricalVerification",
+        "anotherTenantCannotWriteVerificationEvidence"
+      ]
+    },
+    {
+      "name": "com.armada.task.scheduler.PullTaskPullWaveDispatchIntegrationTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "1.098",
+      "java.version": "17.0.19",
+      "java.home": "/Users/daishuaishuai/Library/Java/JavaVirtualMachines/ms-17.0.19/Contents/Home",
+      "cases": [
+        "persistsRandomGroupIntervalAndDoesNotResampleBeforeTheFrozenDeadline",
+        "unverifiedNewGroupIsPausedBeforeAnyMaterialCommand(String)[1]",
+        "unverifiedNewGroupIsPausedBeforeAnyMaterialCommand(String)[2]",
+        "unverifiedNewGroupIsPausedBeforeAnyMaterialCommand(String)[3]",
+        "verifiedNewGroupCanSubmitMaterials",
+        "restrictionDetectedAfterStickyBindingPreventsOutboxCommand",
+        "dispatchesFiveCallsOnScheduleWhileEarlierCallsRemainSubmitted"
+      ]
+    },
+    {
+      "name": "com.armada.task.scheduler.PullTaskGroupCreateProcessorTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "0.103",
+      "java.version": "17.0.19",
+      "java.home": "/Users/daishuaishuai/Library/Java/JavaVirtualMachines/ms-17.0.19/Contents/Home",
+      "cases": [
+        "queriesFixedCreatorMetadataBeforeCompletingProfile",
+        "inFlightProfileDoesNotQueryOrAdvance",
+        "metadataFailurePassesUnconfirmedEvidenceToGate",
+        "invokesIdempotentCreateWithFrozenCommandAndPersistsTheResult",
+        "runtimeFailureIsClassifiedAsUnconfirmedInsteadOfRecreating"
+      ]
+    },
+    {
+      "name": "com.armada.task.scheduler.PullTaskGroupCreateTransactionIntegrationTest",
+      "tests": "11",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "0.213",
+      "java.version": "17.0.19",
+      "java.home": "/Users/daishuaishuai/Library/Java/JavaVirtualMachines/ms-17.0.19/Contents/Home",
+      "cases": [
+        "protocolSuccessWithWrongDescriptionNeverReleasesMaterialPulling",
+        "historicalRegisterStepWithoutEvidenceReturnsToVerificationWithoutRecreatingGroup",
+        "missingRequiredProfilePreventsCreatingAGroup",
+        "unknownProfileRequiresMatchingLiveMetadataAndKeepsUnknownActionFact",
+        "brokenActionIdentityPausesInsteadOfResettingItsTimeoutForever",
+        "pausedOrCanceledExecutionCannotEnqueueAProfileCommand",
+        "canceledActionAndExpiredLeaseCannotReleaseTheGate",
+        "persistsRolesResultsInviteAndRegistrationBeforeManagerJoin",
+        "unconfirmedCreatePausesWithoutChangingOperationIdOrAttemptCount",
+        "expiredQueryAndLateAttemptCannotAdvanceTheExecution",
+        "submittedProfileDoesNotAdvanceUntilItsResultCanBeVerified"
+      ]
+    },
+    {
+      "name": "com.armada.task.service.impl.PullTaskGroupProfileCommandContractTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "0.184",
+      "java.version": "17.0.19",
+      "java.home": "/Users/daishuaishuai/Library/Java/JavaVirtualMachines/ms-17.0.19/Contents/Home",
+      "cases": [
+        "legacySingleSettingCommandCannotHydrateAGroupProfileAction(ProtocolBackend)[1]",
+        "legacySingleSettingCommandCannotHydrateAGroupProfileAction(ProtocolBackend)[2]",
+        "realDispatchProducesHydratableProfileCommandForActualBackend(ProtocolBackend, PullTaskExecutionStage)[1]",
+        "realDispatchProducesHydratableProfileCommandForActualBackend(ProtocolBackend, PullTaskExecutionStage)[2]",
+        "realDispatchProducesHydratableProfileCommandForActualBackend(ProtocolBackend, PullTaskExecutionStage)[3]",
+        "realDispatchProducesHydratableProfileCommandForActualBackend(ProtocolBackend, PullTaskExecutionStage)[4]"
+      ]
+    },
+    {
+      "name": "com.armada.task.service.impl.PullTaskGroupProfileDispatcherTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "0.009",
+      "java.version": "17.0.19",
+      "java.home": "/Users/daishuaishuai/Library/Java/JavaVirtualMachines/ms-17.0.19/Contents/Home",
+      "cases": [
+        "unknownSuccessExhaustedAndCanceledActionsAreNeverResubmitted(int, int)[1]",
+        "unknownSuccessExhaustedAndCanceledActionsAreNeverResubmitted(int, int)[2]",
+        "unknownSuccessExhaustedAndCanceledActionsAreNeverResubmitted(int, int)[3]",
+        "unknownSuccessExhaustedAndCanceledActionsAreNeverResubmitted(int, int)[4]",
+        "groupCreateStageDoesNotFallBackToUnpromotedManager",
+        "definiteFailureReusesActionWithANewCommandRatherThanRecreatingGroup",
+        "groupCreateStageUsesPromoterBeforeManagerIsPromoted"
+      ]
+    },
+    {
+      "name": "com.armada.task.service.impl.PullTaskGroupSettingsResultServiceImplTest",
+      "tests": "13",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "0.011",
+      "java.version": "17.0.19",
+      "java.home": "/Users/daishuaishuai/Library/Java/JavaVirtualMachines/ms-17.0.19/Contents/Home",
+      "cases": [
+        "unknownCommandIsRejected",
+        "joinApprovalFailureRecordsReasonWithoutBlocking",
+        "memberAddResultConvergesWithoutWakingWhenExecutionMovedOn",
+        "memberAddFailureKeepsContactStage",
+        "memberAddSuccessEnqueuesJoinApprovalAndWakesExecution",
+        "memberAddResultConvergesWithoutWakingWhenExecutionNotExecuting",
+        "mismatchedAttemptNoIsRejected",
+        "nonGroupSettingsActionIsRejected",
+        "repeatedCallbackOnTerminalActionIsIdempotent",
+        "memberAddPermissionDeniedBacksOffWithoutJoinApprovalCommand",
+        "memberAddOtherFailureUsesUnconfirmedReason",
+        "joinApprovalSuccessNeverTouchesExecution",
+        "joinApprovalResultLandsAfterExecutionAdvanced"
+      ]
+    },
+    {
+      "name": "com.armada.task.service.PullTaskNewGroupModeValidatorTest",
+      "tests": "10",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "0.019",
+      "java.version": "17.0.19",
+      "java.home": "/Users/daishuaishuai/Library/Java/JavaVirtualMachines/ms-17.0.19/Contents/Home",
+      "cases": [
+        "positiveInitialStationCountRequiresStationGroup",
+        "pastedLinkModeIgnoresCreatorGroup",
+        "rejectsEveryWayToSkipCompleteProfileBeforePull",
+        "stationDemandIsTheMaxOfTwoNeeds",
+        "newGroupModeRequiresCreatorGroup",
+        "pastedLinkModeToleratesCreatorGroup",
+        "nullCreationModeFallsBackToPastedLink",
+        "rejectsOutOfRangeCountsIntervalsAndEarlyOverride",
+        "negativeInitialStationCountIsRejected",
+        "newGroupModeAllowsZeroInitialStations"
+      ]
+    },
+    {
+      "name": "com.armada.task.service.PullTaskStandardCreateServiceTest",
+      "tests": "23",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "0.405",
+      "java.version": "17.0.19",
+      "java.home": "/Users/daishuaishuai/Library/Java/JavaVirtualMachines/ms-17.0.19/Contents/Home",
+      "cases": [
+        "newGroupModeRejectsAnOmittedGroupSettingSwitchBeforeFreezingAnything",
+        "rejectsGroupThatDoesNotBelongToTenant",
+        "linkModeSubmitLeavesCreationModeAtItsColumnDefault",
+        "repeatedSubmissionReturnsTheSameTaskWithoutCreatingASecondOne",
+        "submitFreezesRowsWritesSettingAndFlipsTaskToWaitStart",
+        "positiveStationCountRejectsMissingStationGroup",
+        "submitRollsBackEntirelyWhenAnyLinkIsAlreadyOccupied",
+        "failureAfterBothSettingInsertsRollsBackTheWholeSubmission",
+        "rejectsNonPositiveEarlyPullConfiguration",
+        "repeatedAutoStartSubmissionRetriesStartingACommittedWaitingTask",
+        "normalizedSettingsLeaveLegacyJsonAndGroupNameUntouched",
+        "zeroStationCountAllowsNoStationGroup",
+        "newGroupModeFreezesCreationModeAndCreatorConfigOnSubmit",
+        "submitIsRejectedForAnotherUsersDraft",
+        "rejectsPullCountRangeWithMinGreaterThanMax",
+        "resourcePoolSubmitRejectsMissingFolder",
+        "submitIsRejectedWhenDraftHasNoExecutionRow",
+        "missingAvatarIsRejectedBeforeAnyTaskStateBecomesVisible",
+        "materialFilenameNamingStoresNoManualGroupName",
+        "autoStartUsesTheSharedStartServiceAfterFreezingTheTask",
+        "resourcePoolSubmitRequiresFolderAndKeepsTxtRowsUnbound",
+        "avatarAlreadyBoundToAnotherActiveTaskIsAConflict",
+        "newGroupModeWithoutCreatorGroupIsRejected"
+      ]
+    },
+    {
+      "name": "com.armada.task.PullTaskNewGroupModeMigrationSqlTest",
+      "tests": "10",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "0.009",
+      "java.version": "17.0.19",
+      "java.home": "/Users/daishuaishuai/Library/Java/JavaVirtualMachines/ms-17.0.19/Contents/Home",
+      "cases": [
+        "v136AddsOnlyTheThreeGenuinelyMissingSettings",
+        "v134AddsCreationModeWithSafeDefault",
+        "allMigrationsAreIdempotentAndDataFree",
+        "v133CorrectsStageComment",
+        "v134DoesNotTouchGroupSource",
+        "v136DoesNotDuplicateExistingGroupSettingColumns",
+        "v133MakesLinkColumnsNullableKeepingCollation",
+        "v133AddsGroupCreateColumns",
+        "v133LeavesUniqueKeysAndGeneratedColumnAlone",
+        "v135OnlyDocumentsNewEntryMode"
+      ]
+    },
+    {
+      "name": "com.armada.task.scheduler.PullTaskPullIntervalPolicyTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "0.041",
+      "java.version": "17.0.19",
+      "java.home": "/Users/daishuaishuai/Library/Java/JavaVirtualMachines/ms-17.0.19/Contents/Home",
+      "cases": [
+        "missingMaximumKeepsLegacyFixedIntervalWithoutDrawingRandomness",
+        "rejectsAnInvalidRangeOrRandomValue",
+        "samplesBothInclusiveBounds",
+        "legacyRecoveryUsesConservativeUpperBoundWithoutNewRandomSampling"
+      ]
+    },
+    {
+      "name": "com.armada.task.scheduler.PullTaskGroupSettingsApplyTimingIntegrationTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "2.302",
+      "java.version": "17.0.19",
+      "java.home": "/Users/daishuaishuai/Library/Java/JavaVirtualMachines/ms-17.0.19/Contents/Home",
+      "cases": [
+        "succeededGroupSettingsAreNotSubmittedAgainOnStageRerun",
+        "disabledToggleCreatesNothingInContactStage",
+        "disabledToggleCreatesNothingAtPullWaveSettlement",
+        "afterPullTimingCreatesNothingBeforePulling",
+        "beforePullTimingAppliesGroupSettingsBeforePullingStarts",
+        "afterPullTimingAppliesGroupSettingsWhenPullWaveLeavesPullExecution",
+        "missingManagerSkipsGroupSettingsWithoutBlockingExecution",
+        "afterPullTimingDoesNotDeferGroupSettingsToClosingStage"
+      ]
+    },
+    {
+      "name": "com.armada.task.service.impl.PullTaskGroupSettingsApplyPayloadTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "0.46",
+      "java.version": "17.0.19",
+      "java.home": "/Users/daishuaishuai/Library/Java/JavaVirtualMachines/ms-17.0.19/Contents/Home",
+      "cases": [
+        "unchangedFormChoicesLeavePayloadFieldsEmpty",
+        "payloadCarriesAvatarAndDescriptionInTheSameCommand",
+        "payloadSubjectUsesFormGroupName",
+        "linkPermissionIsMergedIntoEditPermission",
+        "payloadLeavesAvatarAndDescriptionEmptyWhenNotFilled",
+        "groupProfileUsesItsOwnCommandTypeAndSource",
+        "payloadSubjectUsesMaterialFileNameWhenChosen"
+      ]
+    },
+    {
+      "name": "com.armada.task.service.impl.PullTaskGroupSettingsApplyResultTest",
+      "tests": "10",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "0.015",
+      "java.version": "17.0.19",
+      "java.home": "/Users/daishuaishuai/Library/Java/JavaVirtualMachines/ms-17.0.19/Contents/Home",
+      "cases": [
+        "failedMutePersistsMuteReasonCode",
+        "failedAvatarPersistsAvatarReasonCode",
+        "succeededGroupSettingsDoNotEnqueueAnotherCommand",
+        "profileDescriptionReasonSurvivesAnEventWithoutOptionalFailedItem",
+        "failedGroupSettingsPersistGroupNameSetFailed",
+        "everyGroupSettingItemHasItsOwnReasonCode",
+        "failedGroupSettingsNeverTouchExecutionRow",
+        "succeededGroupSettingsConvergeActionToSuccess",
+        "profileFailureWithoutItemKeepsProtocolReasonInsteadOfInventingNameFailure",
+        "failedDescriptionPersistsDescriptionReasonCode"
+      ]
+    },
+    {
+      "name": "com.armada.task.service.PullTaskStandardGroupSettingWriterTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "0.003",
+      "java.version": "17.0.19",
+      "java.home": "/Users/daishuaishuai/Library/Java/JavaVirtualMachines/ms-17.0.19/Contents/Home",
+      "cases": [
+        "rejectsMissingSettingOverlongTextAndNullOptions",
+        "trimsTextAndMapsEveryApiFieldToItsDatabaseColumn",
+        "materialFilenameNamingForcesStoredManualNameToNull"
+      ]
+    }
+  ]
+}

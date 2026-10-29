@@ -1,0 +1,22 @@
+{
+  "armada": {
+    "commit": "d07d61e31bed9e68ceb60420eea3ebb922393e31",
+    "tracked_delta_after_commit": [
+      ".claude/worktrees/agent-af50e0bc4d135f5c8",
+      ".codegraph/daemon.pid",
+      "armada-api/src/main/java/com/armada/account/service/impl/AccountBatchLifecycleServiceImpl.java",
+      "armada-api/src/main/java/com/armada/account/service/impl/AccountOnlineCommandServiceImpl.java",
+      "armada-api/src/main/java/com/armada/platform/protocol/service/impl/ProtocolCommandOutboxServiceImpl.java",
+      "armada-api/src/test/java/com/armada/account/service/impl/AccountBatchLifecycleServiceImplTest.java",
+      "armada-api/src/test/java/com/armada/platform/protocol/service/impl/ProtocolCommandOutboxServiceImplTest.java"
+    ]
+  },
+  "wheel-saas-pure-web": {
+    "commit": "289c8cb017f8fb241e33afd332708dd248f743a9",
+    "tracked_delta_after_commit": [
+      "src/views/account/index/account-batch-operation.test.ts",
+      "src/views/account/index/account-batch-operation.ts",
+      "src/views/account/index/composables/useAccountListPage.ts"
+    ]
+  }
+}

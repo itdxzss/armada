@@ -1,0 +1,232 @@
+{
+  "environment": "perf2",
+  "account_id": 2774,
+  "phone_tail": "***0276",
+  "invite_url": "https://chat.whatsapp.com/GLw4Fz0IeSC6ESlo1S4Cwd",
+  "authorized_actions": [
+    "Join user-specified group with one available account",
+    "Send one plain image, one same-image link card, and one same-image CTA button message"
+  ],
+  "content": {
+    "image_sha256": "3611b3061d3ff9c93fc18a745165d673a059f319bdcf9208711855136448670f",
+    "url": "https://example.com",
+    "labels": [
+      "A plain image",
+      "B native link preview",
+      "C image plus URL button"
+    ]
+  },
+  "method": "Existing Android synchronous HTTP endpoints; not full marketing task acceptance",
+  "bounds": "Each join/send has an exclusive submission marker. No outer retry, no campaign or recurring task.",
+  "skipped_accounts": [
+    {
+      "id": 999,
+      "reason": "Protocol offline; no join/send attempted"
+    },
+    {
+      "id": 2660,
+      "reason": "Protocol offline; no join/send attempted"
+    }
+  ],
+  "setup": {
+    "inspect": {
+      "http_status": 200,
+      "protocol_code": 0,
+      "group_jid": "120363431294451288@g.us",
+      "account_id": 2774,
+      "phone_tail": "***0276",
+      "observed_utc": "2026-10-05T15:14:01.576607+00:00",
+      "error": "",
+      "resolved": true
+    },
+    "join": {
+      "account_id": 2774,
+      "group_jid": "120363431294451288@g.us",
+      "started_utc": "2026-10-05T15:14:01.577331+00:00",
+      "outer_http_submissions": 1,
+      "http_status": 200,
+      "protocol_code": 0,
+      "message": "",
+      "result": "通过邀请码进群成功, 群聊ID: [redacted]@g.us",
+      "state": "JOIN_RESPONSE_SUCCESS",
+      "completed_utc": "2026-10-05T15:14:02.257951+00:00"
+    },
+    "preflight": {
+      "http_status": 200,
+      "protocol_code": 0,
+      "subject": "EverSerene HarborVillage❤️❤️-6",
+      "member_count": 71,
+      "group_jid": "120363431294451288@g.us",
+      "group_matches": true,
+      "sender_present": true,
+      "suspended": false,
+      "terminated": false,
+      "announce": false,
+      "account_id": 2774,
+      "observed_epoch": 1791213243.1841116,
+      "observed_utc": "2026-10-05T15:14:03.184116+00:00",
+      "ready": true
+    }
+  },
+  "messages": [
+    {
+      "label": "A",
+      "account_id": 2774,
+      "group_jid": "120363431294451288@g.us",
+      "image_sha256": "3611b3061d3ff9c93fc18a745165d673a059f319bdcf9208711855136448670f",
+      "image_bytes": 20916,
+      "started_utc": "2026-10-05T15:14:49.993288+00:00",
+      "outer_http_submissions": 1,
+      "http_status": 200,
+      "protocol_code": 0,
+      "message_id": "1DBC197EE54B443E9CBC1D6AFFAF0EF3",
+      "message_type": "image",
+      "result_message": "Sent successfully",
+      "state": "ACK_CONFIRMED",
+      "completed_epoch": 1791213299.708483,
+      "completed_utc": "2026-10-05T15:14:59.708488+00:00"
+    },
+    {
+      "label": "B",
+      "account_id": 2774,
+      "group_jid": "120363431294451288@g.us",
+      "image_sha256": "3611b3061d3ff9c93fc18a745165d673a059f319bdcf9208711855136448670f",
+      "image_bytes": 20916,
+      "started_utc": "2026-10-05T15:15:42.349405+00:00",
+      "outer_http_submissions": 1,
+      "link_url": "https://example.com",
+      "template": "1",
+      "http_status": 200,
+      "protocol_code": 0,
+      "message_id": "51B1379C5BE34C2EB2EEC673B044ACCB",
+      "message_type": "url",
+      "result_message": "",
+      "state": "ACK_CONFIRMED",
+      "completed_epoch": 1791213346.7160501,
+      "completed_utc": "2026-10-05T15:15:46.716055+00:00"
+    },
+    {
+      "label": "C",
+      "account_id": 2774,
+      "group_jid": "120363431294451288@g.us",
+      "image_sha256": "3611b3061d3ff9c93fc18a745165d673a059f319bdcf9208711855136448670f",
+      "image_bytes": 20916,
+      "started_utc": "2026-10-05T15:16:21.297004+00:00",
+      "outer_http_submissions": 1,
+      "link_url": "https://example.com",
+      "template": "2",
+      "http_status": 200,
+      "protocol_code": 0,
+      "message_id": "09353BF4DC95436B9ADC7C4086C7FF5F",
+      "message_type": "url",
+      "result_message": "",
+      "state": "ACK_CONFIRMED",
+      "completed_epoch": 1791213388.7408636,
+      "completed_utc": "2026-10-05T15:16:28.740868+00:00"
+    }
+  ],
+  "recipient_rendering": "Not confirmed; user requested follow-up with exact templates 185 and 186",
+  "source_changes": "None",
+  "retry_boundary": "No outer retry; exclusive join/send markers. Existing protocol may recover explicit ACK errors, but ACK timeout is not auto-resubmitted by this caller.",
+  "remote_readback": {
+    "inspect": {
+      "http_status": 200,
+      "protocol_code": 0,
+      "group_jid": "120363431294451288@g.us",
+      "account_id": 2774,
+      "phone_tail": "***0276",
+      "observed_utc": "2026-10-05T15:14:01.576607+00:00",
+      "error": "",
+      "resolved": true
+    },
+    "join": {
+      "account_id": 2774,
+      "group_jid": "120363431294451288@g.us",
+      "started_utc": "2026-10-05T15:14:01.577331+00:00",
+      "outer_http_submissions": 1,
+      "http_status": 200,
+      "protocol_code": 0,
+      "message": "",
+      "result": "通过邀请码进群成功, 群聊ID: [redacted]@g.us",
+      "state": "JOIN_RESPONSE_SUCCESS",
+      "completed_utc": "2026-10-05T15:14:02.257951+00:00"
+    },
+    "preflight": {
+      "http_status": 200,
+      "protocol_code": 0,
+      "subject": "EverSerene HarborVillage❤️❤️-6",
+      "member_count": 71,
+      "group_jid": "120363431294451288@g.us",
+      "group_matches": true,
+      "sender_present": true,
+      "suspended": false,
+      "terminated": false,
+      "announce": false,
+      "account_id": 2774,
+      "observed_epoch": 1791213243.1841116,
+      "observed_utc": "2026-10-05T15:14:03.184116+00:00",
+      "ready": true
+    },
+    "A": {
+      "label": "A",
+      "account_id": 2774,
+      "group_jid": "120363431294451288@g.us",
+      "image_sha256": "3611b3061d3ff9c93fc18a745165d673a059f319bdcf9208711855136448670f",
+      "image_bytes": 20916,
+      "started_utc": "2026-10-05T15:14:49.993288+00:00",
+      "outer_http_submissions": 1,
+      "http_status": 200,
+      "protocol_code": 0,
+      "message_id": "1DBC197EE54B443E9CBC1D6AFFAF0EF3",
+      "message_type": "image",
+      "result_message": "Sent successfully",
+      "state": "ACK_CONFIRMED",
+      "completed_epoch": 1791213299.708483,
+      "completed_utc": "2026-10-05T15:14:59.708488+00:00"
+    },
+    "B": {
+      "label": "B",
+      "account_id": 2774,
+      "group_jid": "120363431294451288@g.us",
+      "image_sha256": "3611b3061d3ff9c93fc18a745165d673a059f319bdcf9208711855136448670f",
+      "image_bytes": 20916,
+      "started_utc": "2026-10-05T15:15:42.349405+00:00",
+      "outer_http_submissions": 1,
+      "link_url": "https://example.com",
+      "template": "1",
+      "http_status": 200,
+      "protocol_code": 0,
+      "message_id": "51B1379C5BE34C2EB2EEC673B044ACCB",
+      "message_type": "url",
+      "result_message": "",
+      "state": "ACK_CONFIRMED",
+      "completed_epoch": 1791213346.7160501,
+      "completed_utc": "2026-10-05T15:15:46.716055+00:00"
+    },
+    "C": {
+      "label": "C",
+      "account_id": 2774,
+      "group_jid": "120363431294451288@g.us",
+      "image_sha256": "3611b3061d3ff9c93fc18a745165d673a059f319bdcf9208711855136448670f",
+      "image_bytes": 20916,
+      "started_utc": "2026-10-05T15:16:21.297004+00:00",
+      "outer_http_submissions": 1,
+      "link_url": "https://example.com",
+      "template": "2",
+      "http_status": 200,
+      "protocol_code": 0,
+      "message_id": "09353BF4DC95436B9ADC7C4086C7FF5F",
+      "message_type": "url",
+      "result_message": "",
+      "state": "ACK_CONFIRMED",
+      "completed_epoch": 1791213388.7408636,
+      "completed_utc": "2026-10-05T15:16:28.740868+00:00"
+    },
+    "after_status": {
+      "http_status": 200,
+      "protocol_code": 0,
+      "online": true,
+      "checked_utc": "2026-10-05T15:19:22.447201+00:00"
+    }
+  }
+}

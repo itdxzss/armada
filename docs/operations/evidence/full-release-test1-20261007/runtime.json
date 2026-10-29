@@ -1,0 +1,39 @@
+{
+  "business": {
+    "exit": 0,
+    "stdout": "2d46657b83d1e63efe4aa8cdbb6fd667e10766234ab8d7d78511f60ae2e61627  /home/app/armada-deploy/armada-api/target/armada-api-deploy.jar\n2d46657b83d1e63efe4aa8cdbb6fd667e10766234ab8d7d78511f60ae2e61627  /app/app.jar\n5a8a2df86545f72086bcd07ea01a98c4d6c709e64807b0b7c571b474e8332e78  /usr/share/nginx/html/saas/index.html\n/armada-backend status=running restarts=0 started=2026-10-07T09:39:25.145405643Z image=sha256:a304444248ee6340fe38058ca7ae1357cb7792431a79c0ef6e2217bbc99df60b\n/armada-nginx status=running restarts=0 started=2026-10-07T09:39:25.338063707Z image=sha256:cb8212c1cd7594a5d9a152457f96925bb8eeafe35e40ae643c24ffdcb2abbf3c\n/athena-test1-web status=running restarts=0 started=2026-10-06T13:59:48.269079002Z image=sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236\n/athena-test1-server status=running restarts=0 started=2026-10-06T13:59:06.816651119Z image=sha256:49e21e16e3c86eb7816a44a67549910ed090fbeb40c29c525d58bf5e02e91b0f\n2026-10-07 09:39:40.310 INFO  [main] traceId= o.f.core.internal.command.DbValidate - Successfully validated 215 migrations (execution time 00:00.322s)\n2026-10-07 09:39:40.346 INFO  [main] traceId= o.f.core.internal.command.DbMigrate - Current version of schema `armada`: 213\n2026-10-07 09:39:40.355 INFO  [main] traceId= o.f.core.internal.command.DbMigrate - Schema `armada` is up to date. No migration necessary.\n",
+    "stderr": ""
+  },
+  "coordinator": {
+    "exit": 0,
+    "stdout": "11c458b0b3cf3b98e748214ea59341c8d0199aecc4457804cd7fa89542fd32f6  api/service/login.go\n85e8b72ed38d0bbefbae349d6425ec4193961c4a933ea7eda09dfe0d411fbb5e  internal/armada/executor.go\nb5f69b0f36ee5def77bbb1a3ea5c0cda98857e259b2dcd5cff7daac52c76d6ad  internal/service/node/nodes/iq.go\n/zhuan-coordinator status=running health=healthy restarts=0 image=sha256:dcb4a4ef63b503a6958bff8c7c9d0cc209640f0282c7be0b23db4fae25bd659f\n",
+    "stderr": ""
+  },
+  "node1": {
+    "exit": 0,
+    "stdout": "11c458b0b3cf3b98e748214ea59341c8d0199aecc4457804cd7fa89542fd32f6  api/service/login.go\n85e8b72ed38d0bbefbae349d6425ec4193961c4a933ea7eda09dfe0d411fbb5e  internal/armada/executor.go\nb5f69b0f36ee5def77bbb1a3ea5c0cda98857e259b2dcd5cff7daac52c76d6ad  internal/service/node/nodes/iq.go\n/zhuan-node status=running health=healthy restarts=0 image=sha256:088b83ba88dd8d2f7a6d33d9ff8f15b333622f3f55573bc2fe528b15c5cda624\n",
+    "stderr": ""
+  },
+  "web": {
+    "exit": 0,
+    "stdout": "b0f0207e51020be494ca140534e59ad698ed521a6ee899ac4c2c44aae3dc5428  src/server.ts\n51325ba58de2da98c682cff651a4727915ad374f4b9547f670ff6d5343bca385  dist/protocol-layer/src/server.js\n{\"ok\":true}[{\"name\":\"armada-protocol-master\",\"status\":\"online\",\"restarts\":109,\"node\":\"24.16.0\"},{\"name\":\"protocol-runtime-collector\",\"status\":\"online\",\"restarts\":0},{\"name\":\"armada-protocol-worker-1\",\"status\":\"online\",\"restarts\":114,\"node\":\"24.16.0\"},{\"name\":\"armada-protocol-worker-2\",\"status\":\"online\",\"restarts\":114,\"node\":\"24.16.0\"},{\"name\":\"armada-protocol-worker-3\",\"status\":\"online\",\"restarts\":113,\"node\":\"24.16.0\"},{\"name\":\"armada-protocol-worker-4\",\"status\":\"online\",\"restarts\":118,\"node\":\"24.16.0\"},{\"name\":\"protocol-traffic-dashboard\",\"status\":\"online\",\"restarts\":150,\"node\":\"24.16.0\"}]\n",
+    "stderr": ""
+  },
+  "local_hashes": {
+    "armada/armada-api/target/armada-api-1.0.2-SNAPSHOT.jar": "2d46657b83d1e63efe4aa8cdbb6fd667e10766234ab8d7d78511f60ae2e61627",
+    "wheel-saas-pure-web/dist/index.html": "5a8a2df86545f72086bcd07ea01a98c4d6c709e64807b0b7c571b474e8332e78",
+    "armada-protocol/protocol-layer/src/server.ts": "b0f0207e51020be494ca140534e59ad698ed521a6ee899ac4c2c44aae3dc5428",
+    "armada-protocol/protocol-layer/dist/protocol-layer/src/server.js": "51325ba58de2da98c682cff651a4727915ad374f4b9547f670ff6d5343bca385",
+    "whatsapp-server-feature-android-zhuan/api/service/login.go": "11c458b0b3cf3b98e748214ea59341c8d0199aecc4457804cd7fa89542fd32f6",
+    "whatsapp-server-feature-android-zhuan/internal/armada/executor.go": "85e8b72ed38d0bbefbae349d6425ec4193961c4a933ea7eda09dfe0d411fbb5e",
+    "whatsapp-server-feature-android-zhuan/internal/service/node/nodes/iq.go": "b5f69b0f36ee5def77bbb1a3ea5c0cda98857e259b2dcd5cff7daac52c76d6ad"
+  },
+  "public_index": {
+    "exit": 0,
+    "sha256": "5a8a2df86545f72086bcd07ea01a98c4d6c709e64807b0b7c571b474e8332e78"
+  },
+  "public_api": {
+    "exit": 0,
+    "response": "{\"code\":40104,\"message\":\"\u767b\u5f55\u5df2\u5931\u6548\uff0c\u8bf7\u91cd\u65b0\u767b\u5f55\"} HTTP=401"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "environment": "test1",
+  "host": "65.2.123.53",
+  "scope": "backend only",
+  "baseCommit": "d3835fa94ddee7218948b164521ad3eca9538d9d",
+  "source": "main workspace 1.0.3-snapshot plus uncommitted controlled-member batch changes",
+  "command": "CI=true bash armada-deploy/deploy-test.sh --env test1 --be -y",
+  "exitCode": 0,
+  "jarSha256": "3a17805a76c3dfb4ad497fefc470787e1c6105c73971bddd0e4b74ebb07aaf27",
+  "remoteJarHashMatched": true,
+  "runningJarHashMatched": true,
+  "backendHealthCheckPassed": true,
+  "maxPollRecords": 500,
+  "configurationBackup": "/home/app/armada-deploy/backups/controlled-batch-500-20260914T040305Z",
+  "buildAndDeployLog": "/tmp/group241-diag/deploy-batch-test1.log",
+  "unitAndIntegrationTestsPassedBeforeDeploy": 88,
+  "commitOrPushPerformed": false
+}

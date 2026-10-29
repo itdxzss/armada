@@ -1,0 +1,2 @@
+{"origin":"http://3.110.124.52","observedAt":"2026-10-06T09:54:18.573Z","switches":[{"label":"管理员接管后注销建群账号","checked":"true"},{"label":"自动启动","checked":"false"},{"label":"是否清空群原成员","checked":"false"},{"label":"拉手踩链接进群","checked":"false"},{"label":"拉人完成后群主退群","checked":"false"}]}
+

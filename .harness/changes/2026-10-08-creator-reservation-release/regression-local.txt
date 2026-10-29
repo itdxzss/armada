@@ -1,0 +1,996 @@
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] -----------------------< com.armada:armada-api >------------------------
+[INFO] Building armada-api 1.0.2-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ armada-api ---
+[INFO] Copying 1 resource from src/main/resources to target/classes
+[INFO] Copying 353 resources from src/main/resources to target/classes
+[INFO] 
+[INFO] --- compiler:3.13.0:compile (default-compile) @ armada-api ---
+[INFO] Recompiling the module because of changed source code.
+[INFO] Compiling 2291 source files with javac [debug parameters release 17] to target/classes
+[WARNING] /Users/daishuaishuai/IdeaProjects/armada/armada-api/src/main/java/com/armada/marketing/converter/ScriptMarketingConverter.java:[17,31] Unmapped target properties: "id, tenantId, createdBy, stepsJson, createdAt, updatedAt, deletedAt".
+[WARNING] /Users/daishuaishuai/IdeaProjects/armada/armada-api/src/main/java/com/armada/marketing/converter/ScriptMarketingConverter.java:[19,25] Unmapped target properties: "pauseReason, id, tenantId, createdBy, stepsJson, status, createdAt, updatedAt".
+[WARNING] /Users/daishuaishuai/IdeaProjects/armada/armada-api/src/main/java/com/armada/marketing/converter/MarketingTemplateConverter.java:[28,23] Unmapped target properties: "id, tenantId, createdAt, updatedAt, createdBy, deletedAt".
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ armada-api ---
+[INFO] Copying 1 resource from src/test/resources to target/test-classes
+[INFO] 
+[INFO] --- compiler:3.13.0:testCompile (default-testCompile) @ armada-api ---
+[INFO] Recompiling the module because of changed dependency.
+[INFO] Compiling 949 source files with javac [debug parameters release 17] to target/test-classes
+[INFO] /Users/daishuaishuai/IdeaProjects/armada/armada-api/src/test/java/com/armada/account/takeover/AccountTakeoverH2Support.java: 某些输入文件使用或覆盖了已过时的 API。
+[INFO] /Users/daishuaishuai/IdeaProjects/armada/armada-api/src/test/java/com/armada/account/takeover/AccountTakeoverH2Support.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+[INFO] /Users/daishuaishuai/IdeaProjects/armada/armada-api/src/test/java/com/armada/account/service/impl/AccountBatchLifecycleServiceImplTest.java: 某些输入文件使用了未经检查或不安全的操作。
+[INFO] /Users/daishuaishuai/IdeaProjects/armada/armada-api/src/test/java/com/armada/account/service/impl/AccountBatchLifecycleServiceImplTest.java: 有关详细信息, 请使用 -Xlint:unchecked 重新编译。
+[INFO] 
+[INFO] --- surefire:3.2.5:test (default-test) @ armada-api ---
+[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
+[INFO] 
+[INFO] -------------------------------------------------------
+[INFO]  T E S T S
+[INFO] -------------------------------------------------------
+[INFO] Running com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapperInMemoryTest
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.087 s -- in com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapperInMemoryTest
+[INFO] Running com.armada.platform.protocol.ProtocolCommandOutboxTraceMigrationSqlTest
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.007 s -- in com.armada.platform.protocol.ProtocolCommandOutboxTraceMigrationSqlTest
+[INFO] Running com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImplTest
+OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader classes because bootstrap classpath has been appended
+10:02:43.563 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=pull-task:9 commandCount=2 inserted=2
+10:02:43.599 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=null commandCount=1 inserted=1
+10:02:43.611 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=null commandCount=1 inserted=1
+10:02:43.617 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=pull-task:9 commandCount=2 inserted=2
+10:02:43.627 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=null commandCount=1 inserted=1
+10:02:43.633 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=join-task:9 commandCount=2 inserted=2
+10:02:43.681 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=batch-offline-1 commandCount=500 inserted=500
+10:02:43.704 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=pull-task:9 commandCount=2 inserted=2
+10:02:43.719 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=pull-task:9 commandCount=1 inserted=1
+10:02:43.727 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=null commandCount=1 inserted=1
+10:02:43.729 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=null commandCount=1 inserted=1
+10:02:43.732 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=null commandCount=1 inserted=1
+10:02:43.773 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=pull-task:9 commandCount=1 inserted=1
+10:02:43.779 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=pull-task:9 commandCount=1 inserted=1
+10:02:43.783 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=pull-task:9 commandCount=1 inserted=1
+10:02:43.788 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=pull-task:9 commandCount=1 inserted=1
+10:02:43.792 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=pull-task:9 commandCount=1 inserted=1
+10:02:43.796 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=batch-trace commandCount=3 inserted=3
+10:02:43.800 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=pull-task:9 commandCount=2 inserted=2
+10:02:43.804 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=null commandCount=1 inserted=1
+10:02:43.807 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=batch-trace commandCount=2 inserted=2
+10:02:43.814 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=pull-task:9 commandCount=2 inserted=2
+10:02:43.850 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=batch-offline-1000 commandCount=1000 inserted=1000
+10:02:43.856 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=null commandCount=1 inserted=1
+10:02:43.863 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=null commandCount=1 inserted=1
+10:02:43.866 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=null commandCount=1 inserted=1
+10:02:43.882 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=batch-1 commandCount=500 inserted=500
+10:02:43.896 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=pull-task:9 commandCount=1 inserted=1
+10:02:43.898 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=null commandCount=1 inserted=1
+10:02:43.903 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=normal-group-creation:9 commandCount=2 inserted=2
+10:02:43.908 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=batch-snapshot commandCount=2 inserted=2
+10:02:43.915 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=pull-task:9 commandCount=2 inserted=2
+10:02:43.922 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=pull-task:9 commandCount=1 inserted=1
+10:02:43.930 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=null commandCount=1 inserted=1
+10:02:43.937 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=pull-task:9 commandCount=2 inserted=2
+10:02:43.939 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=null commandCount=1 inserted=1
+10:02:43.941 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=null commandCount=1 inserted=1
+[INFO] Tests run: 49, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.801 s -- in com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImplTest
+[INFO] Running com.armada.platform.kafka.dispatch.ProtocolCommandOutboxCleanupSchedulerTest
+10:02:43.946 [main] INFO com.armada.platform.kafka.dispatch.ProtocolCommandOutboxCleanupScheduler -- 协议命令 outbox 已发送行清理完成 deleted=30274 createdBefore=1790906563946 costMs=0
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.013 s -- in com.armada.platform.kafka.dispatch.ProtocolCommandOutboxCleanupSchedulerTest
+[INFO] Running com.armada.task.mapper.PullTaskCreatorDeletionMapperH2Test
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.113 s -- in com.armada.task.mapper.PullTaskCreatorDeletionMapperH2Test
+[INFO] Running com.armada.task.mapper.PullTaskCreatorDeletionReleaseMigrationTest
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.034 s -- in com.armada.task.mapper.PullTaskCreatorDeletionReleaseMigrationTest
+[INFO] Running com.armada.task.mapper.PullTaskCreatorDeletionMigrationTest
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.024 s -- in com.armada.task.mapper.PullTaskCreatorDeletionMigrationTest
+[INFO] Running com.armada.task.mapper.PullTaskCreatorDeletionConfigH2Test
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.518 s -- in com.armada.task.mapper.PullTaskCreatorDeletionConfigH2Test
+[INFO] Running com.armada.task.scheduler.PullTaskCreatorOfflineGateH2Test
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:45.118 [main] WARN com.armada.task.scheduler.PullTaskCreatorOfflineGate -- 预留建群人提交后恢复失败 tenantId=7 taskId=1 executionId=11 accountId=901
+java.lang.IllegalStateException: proxy unavailable
+	at com.armada.task.scheduler.PullTaskCreatorOfflineGate.lambda$recover$1(PullTaskCreatorOfflineGate.java:135)
+	at org.springframework.transaction.support.TransactionOperations.lambda$executeWithoutResult$0(TransactionOperations.java:68)
+	at org.springframework.transaction.support.TransactionTemplate.execute(TransactionTemplate.java:140)
+	at org.springframework.transaction.support.TransactionOperations.executeWithoutResult(TransactionOperations.java:67)
+	at com.armada.task.scheduler.PullTaskCreatorOfflineGate.recover(PullTaskCreatorOfflineGate.java:135)
+	at com.armada.task.scheduler.PullTaskCreatorOfflineGate.lambda$requestRecoveryAfterCommit$0(PullTaskCreatorOfflineGate.java:99)
+	at com.armada.task.scheduler.PullTaskCreatorOfflineGate$1.afterCommit(PullTaskCreatorOfflineGate.java:103)
+	at org.springframework.transaction.support.TransactionSynchronizationUtils.invokeAfterCommit(TransactionSynchronizationUtils.java:135)
+	at org.springframework.transaction.support.TransactionSynchronizationUtils.triggerAfterCommit(TransactionSynchronizationUtils.java:123)
+	at org.springframework.transaction.support.AbstractPlatformTransactionManager.triggerAfterCommit(AbstractPlatformTransactionManager.java:1006)
+	at org.springframework.transaction.support.AbstractPlatformTransactionManager.processCommit(AbstractPlatformTransactionManager.java:836)
+	at org.springframework.transaction.support.AbstractPlatformTransactionManager.commit(AbstractPlatformTransactionManager.java:758)
+	at org.springframework.transaction.interceptor.TransactionAspectSupport.commitTransactionAfterReturning(TransactionAspectSupport.java:663)
+	at org.springframework.transaction.interceptor.TransactionAspectSupport.invokeWithinTransaction(TransactionAspectSupport.java:413)
+	at org.springframework.transaction.interceptor.TransactionInterceptor.invoke(TransactionInterceptor.java:119)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.framework.CglibAopProxy$CglibMethodInvocation.proceed(CglibAopProxy.java:768)
+	at org.springframework.aop.framework.CglibAopProxy$DynamicAdvisedInterceptor.intercept(CglibAopProxy.java:720)
+	at com.armada.task.scheduler.PullTaskGroupCreateTransactionService$$SpringCGLIB$$0.prepareCreate(<generated>)
+	at com.armada.task.scheduler.PullTaskCreatorOfflineGateH2Test.recoveryFailureDoesNotRollbackCommittedWait(PullTaskCreatorOfflineGateH2Test.java:195)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.junit.platform.commons.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:728)
+	at org.junit.jupiter.engine.execution.MethodInvocation.proceed(MethodInvocation.java:60)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$ValidatingInvocation.proceed(InvocationInterceptorChain.java:131)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.intercept(TimeoutExtension.java:156)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestableMethod(TimeoutExtension.java:147)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestMethod(TimeoutExtension.java:86)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker$ReflectiveInterceptorCall.lambda$ofVoidMethod$0(InterceptingExecutableInvoker.java:103)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.lambda$invoke$0(InterceptingExecutableInvoker.java:93)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$InterceptedInvocation.proceed(InvocationInterceptorChain.java:106)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.proceed(InvocationInterceptorChain.java:64)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.chainAndInvoke(InvocationInterceptorChain.java:45)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.invoke(InvocationInterceptorChain.java:37)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:92)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:86)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.lambda$invokeTestMethod$7(TestMethodTestDescriptor.java:218)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.invokeTestMethod(TestMethodTestDescriptor.java:214)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:139)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:69)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:156)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:146)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:144)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:143)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:100)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:160)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:146)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:144)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:143)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:100)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:160)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:146)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:144)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:143)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:100)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.submit(SameThreadHierarchicalTestExecutorService.java:35)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestExecutor.execute(HierarchicalTestExecutor.java:57)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestEngine.execute(HierarchicalTestEngine.java:54)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:198)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:169)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:93)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.lambda$execute$0(EngineExecutionOrchestrator.java:58)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.withInterceptedStreams(EngineExecutionOrchestrator.java:141)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:57)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:103)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:85)
+	at org.junit.platform.launcher.core.DelegatingLauncher.execute(DelegatingLauncher.java:47)
+	at org.apache.maven.surefire.junitplatform.LazyLauncher.execute(LazyLauncher.java:56)
+	at org.apache.maven.surefire.junitplatform.JUnitPlatformProvider.execute(JUnitPlatformProvider.java:184)
+	at org.apache.maven.surefire.junitplatform.JUnitPlatformProvider.invokeAllTests(JUnitPlatformProvider.java:148)
+	at org.apache.maven.surefire.junitplatform.JUnitPlatformProvider.invoke(JUnitPlatformProvider.java:122)
+	at org.apache.maven.surefire.booter.ForkedBooter.runSuitesInProcess(ForkedBooter.java:385)
+	at org.apache.maven.surefire.booter.ForkedBooter.execute(ForkedBooter.java:162)
+	at org.apache.maven.surefire.booter.ForkedBooter.run(ForkedBooter.java:507)
+	at org.apache.maven.surefire.booter.ForkedBooter.main(ForkedBooter.java:495)
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+[INFO] Tests run: 19, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.398 s -- in com.armada.task.scheduler.PullTaskCreatorOfflineGateH2Test
+[INFO] Running com.armada.task.scheduler.PullTaskCreatorDeletionReleaseH2Test
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:46.386 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TEST_TERMINAL
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:46.463 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TEST_TERMINAL
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:46.552 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TEST_TERMINAL
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:46.620 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TEST_TERMINAL
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:46.939 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TASK_ENDED
+10:02:46.972 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TASK_ENDED
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:47.077 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=EXECUTION_TERMINAL
+10:02:47.095 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=EXECUTION_TERMINAL
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:47.148 [main] WARN com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 终态执行缺少建群注销账本，保留预留 tenantId=1 taskId=11 executionId=111
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:47.190 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TEST_TERMINAL
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:47.307 [main] WARN com.armada.task.scheduler.PullTaskCreatorReservationReleaseJob -- 建群账号预留补扫失败 tenantId=1 taskId=11 executionId=111 errorType=DataIntegrityViolationException
+10:02:47.316 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=12 executionId=112 accountId=2 reason=TERMINAL_SWEEP
+10:02:47.324 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TERMINAL_SWEEP
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:47.851 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TERMINAL_SWEEP
+10:02:47.858 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=22 executionId=202 accountId=2 reason=TERMINAL_SWEEP
+10:02:47.862 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=2 taskId=23 executionId=203 accountId=3 reason=TERMINAL_SWEEP
+10:02:47.868 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=24 executionId=204 accountId=4 reason=TERMINAL_SWEEP
+10:02:47.874 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=2 taskId=25 executionId=205 accountId=5 reason=TERMINAL_SWEEP
+10:02:47.880 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=26 executionId=206 accountId=6 reason=TERMINAL_SWEEP
+10:02:47.884 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=2 taskId=27 executionId=207 accountId=7 reason=TERMINAL_SWEEP
+10:02:47.891 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=28 executionId=208 accountId=8 reason=TERMINAL_SWEEP
+10:02:47.896 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=2 taskId=29 executionId=209 accountId=9 reason=TERMINAL_SWEEP
+10:02:47.903 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=30 executionId=210 accountId=10 reason=TERMINAL_SWEEP
+10:02:47.909 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=2 taskId=31 executionId=211 accountId=11 reason=TERMINAL_SWEEP
+10:02:47.915 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=32 executionId=212 accountId=12 reason=TERMINAL_SWEEP
+10:02:47.921 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=2 taskId=33 executionId=213 accountId=13 reason=TERMINAL_SWEEP
+10:02:47.927 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=34 executionId=214 accountId=14 reason=TERMINAL_SWEEP
+10:02:47.931 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=2 taskId=35 executionId=215 accountId=15 reason=TERMINAL_SWEEP
+10:02:47.936 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=36 executionId=216 accountId=16 reason=TERMINAL_SWEEP
+10:02:47.941 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=2 taskId=37 executionId=217 accountId=17 reason=TERMINAL_SWEEP
+10:02:47.945 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=38 executionId=218 accountId=18 reason=TERMINAL_SWEEP
+10:02:47.947 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=2 taskId=39 executionId=219 accountId=19 reason=TERMINAL_SWEEP
+10:02:47.951 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=40 executionId=220 accountId=20 reason=TERMINAL_SWEEP
+10:02:47.954 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=2 taskId=41 executionId=221 accountId=21 reason=TERMINAL_SWEEP
+10:02:47.958 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=42 executionId=222 accountId=22 reason=TERMINAL_SWEEP
+10:02:47.960 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=2 taskId=43 executionId=223 accountId=23 reason=TERMINAL_SWEEP
+10:02:47.963 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=44 executionId=224 accountId=24 reason=TERMINAL_SWEEP
+10:02:47.966 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=2 taskId=45 executionId=225 accountId=25 reason=TERMINAL_SWEEP
+10:02:47.969 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=46 executionId=226 accountId=26 reason=TERMINAL_SWEEP
+10:02:47.972 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=2 taskId=47 executionId=227 accountId=27 reason=TERMINAL_SWEEP
+10:02:47.975 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=48 executionId=228 accountId=28 reason=TERMINAL_SWEEP
+10:02:47.979 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=2 taskId=49 executionId=229 accountId=29 reason=TERMINAL_SWEEP
+10:02:47.983 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=50 executionId=230 accountId=30 reason=TERMINAL_SWEEP
+10:02:47.986 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=2 taskId=51 executionId=231 accountId=31 reason=TERMINAL_SWEEP
+10:02:47.988 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=52 executionId=232 accountId=32 reason=TERMINAL_SWEEP
+10:02:47.990 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=2 taskId=53 executionId=233 accountId=33 reason=TERMINAL_SWEEP
+10:02:47.993 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=54 executionId=234 accountId=34 reason=TERMINAL_SWEEP
+10:02:47.996 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=2 taskId=55 executionId=235 accountId=35 reason=TERMINAL_SWEEP
+10:02:47.998 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=56 executionId=236 accountId=36 reason=TERMINAL_SWEEP
+10:02:48.001 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=2 taskId=57 executionId=237 accountId=37 reason=TERMINAL_SWEEP
+10:02:48.004 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=58 executionId=238 accountId=38 reason=TERMINAL_SWEEP
+10:02:48.006 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=2 taskId=59 executionId=239 accountId=39 reason=TERMINAL_SWEEP
+10:02:48.008 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=60 executionId=240 accountId=40 reason=TERMINAL_SWEEP
+10:02:48.011 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=2 taskId=61 executionId=241 accountId=41 reason=TERMINAL_SWEEP
+10:02:48.015 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=62 executionId=242 accountId=42 reason=TERMINAL_SWEEP
+10:02:48.018 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=2 taskId=63 executionId=243 accountId=43 reason=TERMINAL_SWEEP
+10:02:48.021 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=64 executionId=244 accountId=44 reason=TERMINAL_SWEEP
+10:02:48.023 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=2 taskId=65 executionId=245 accountId=45 reason=TERMINAL_SWEEP
+10:02:48.031 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=66 executionId=246 accountId=46 reason=TERMINAL_SWEEP
+10:02:48.033 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=2 taskId=67 executionId=247 accountId=47 reason=TERMINAL_SWEEP
+10:02:48.035 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=68 executionId=248 accountId=48 reason=TERMINAL_SWEEP
+10:02:48.038 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=2 taskId=69 executionId=249 accountId=49 reason=TERMINAL_SWEEP
+10:02:48.041 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=70 executionId=250 accountId=50 reason=TERMINAL_SWEEP
+10:02:48.044 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=2 taskId=71 executionId=251 accountId=51 reason=TERMINAL_SWEEP
+10:02:48.047 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=72 executionId=252 accountId=52 reason=TERMINAL_SWEEP
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:48.091 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TEST_TERMINAL
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:48.147 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TEST_TERMINAL
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:48.396 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TEST_TERMINAL
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:48.566 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TEST_TERMINAL
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:48.819 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TEST_TERMINAL
+10:02:48.822 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线开始 accountId=1
+10:02:48.845 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线写入 outbox 前准备 command accountId=1 attemptId=oa_20261009020248_1u3j34jjtqa3 allocatedProxyId=70 credentialFormat=SIX_SEGMENT credentialLength=2
+10:02:48.854 [main] INFO com.armada.platform.kafka.dispatch.ProtocolCommandDispatchTrigger -- 协议命令 outbox afterCommit dispatch 已关闭 rows=1
+10:02:48.854 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=null commandCount=1 inserted=1
+10:02:48.854 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线 outbox 已受理 accountId=1 allocatedProxyId=70 commandIds=1 inserted=1
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:49.188 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TEST_TERMINAL
+[INFO] Tests run: 36, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 3.122 s -- in com.armada.task.scheduler.PullTaskCreatorDeletionReleaseH2Test
+[INFO] Running com.armada.task.scheduler.PullTaskCreatorDeletionProofTest
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.005 s -- in com.armada.task.scheduler.PullTaskCreatorDeletionProofTest
+[INFO] Running com.armada.task.scheduler.PullTaskCreatorDeletionDispatchServiceTest
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.074 s -- in com.armada.task.scheduler.PullTaskCreatorDeletionDispatchServiceTest
+[INFO] Running com.armada.task.scheduler.PullTaskCreatorDeletionTransactionServiceTest
+[INFO] Tests run: 14, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.071 s -- in com.armada.task.scheduler.PullTaskCreatorDeletionTransactionServiceTest
+[INFO] Running com.armada.task.scheduler.PullTaskCreatorDeletionManagerGateTest
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.050 s -- in com.armada.task.scheduler.PullTaskCreatorDeletionManagerGateTest
+[INFO] Running com.armada.task.scheduler.PullTaskCreatorDeletionProcessorTest
+10:02:49.416 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionProcessor -- 永久注销提交结果未知 executionId=3，后续仅查询原操作
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.025 s -- in com.armada.task.scheduler.PullTaskCreatorDeletionProcessorTest
+[INFO] Running com.armada.task.scheduler.PullTaskCreatorDeletionDownstreamGateTest
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.179 s -- in com.armada.task.scheduler.PullTaskCreatorDeletionDownstreamGateTest
+[INFO] Running com.armada.task.service.PullTaskStandardExecutionLifecycleServiceTest
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+[INFO] Tests run: 28, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.871 s -- in com.armada.task.service.PullTaskStandardExecutionLifecycleServiceTest
+[INFO] Running com.armada.task.service.PullTaskStandardLifecycleServiceTest
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.137 s -- in com.armada.task.service.PullTaskStandardLifecycleServiceTest
+[INFO] Running com.armada.account.service.impl.AccountBatchLifecycleTransactionH2Test
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:50.808 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排开始 operation=OFFLINE scope=IDS requested=1
+10:02:50.812 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线开始 requested=1
+10:02:50.817 [main] WARN com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量生命周期受限 operation=OFFLINE chunkIndex=1 rejected=1 remaining=0
+10:02:50.817 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排完成 operation=OFFLINE scope=IDS requested=1 submitted=1 accepted=0 skipped=0 failed=1
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:50.833 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排开始 operation=OFFLINE scope=IDS requested=1
+10:02:50.836 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线开始 requested=1
+10:02:50.839 [main] WARN com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量生命周期受限 operation=OFFLINE chunkIndex=1 rejected=1 remaining=0
+10:02:50.839 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排完成 operation=OFFLINE scope=IDS requested=1 submitted=1 accepted=0 skipped=0 failed=1
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:50.854 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排开始 operation=OFFLINE scope=IDS requested=1
+10:02:50.856 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线开始 requested=1
+10:02:50.859 [main] WARN com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量生命周期受限 operation=OFFLINE chunkIndex=1 rejected=1 remaining=0
+10:02:50.859 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排完成 operation=OFFLINE scope=IDS requested=1 submitted=1 accepted=0 skipped=0 failed=1
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:50.875 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排开始 operation=OFFLINE scope=IDS requested=2
+10:02:50.878 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线开始 requested=2
+10:02:50.881 [main] WARN com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量生命周期受限 operation=OFFLINE chunkIndex=1 rejected=1 remaining=1
+10:02:50.881 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线开始 requested=1
+10:02:50.884 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=null commandCount=1 inserted=1
+10:02:50.885 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线 outbox 已受理 requested=1 submitted=1 accepted=1 error=0 elapsedMs=0 canceledOnlineCommands=1 batchId=null commandIds=1
+10:02:50.886 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次已处理 operation=OFFLINE chunkIndex=1 requested=1 accepted=1
+10:02:50.886 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排完成 operation=OFFLINE scope=IDS requested=2 submitted=2 accepted=1 skipped=0 failed=1
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:50.911 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排开始 operation=OFFLINE scope=IDS requested=2
+10:02:50.913 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线开始 requested=2
+10:02:50.915 [main] WARN com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量生命周期受限 operation=OFFLINE chunkIndex=1 rejected=1 remaining=1
+10:02:50.915 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线开始 requested=1
+10:02:50.919 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=null commandCount=1 inserted=1
+10:02:50.919 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线 outbox 已受理 requested=1 submitted=1 accepted=1 error=0 elapsedMs=0 canceledOnlineCommands=1 batchId=null commandIds=1
+10:02:50.919 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次已处理 operation=OFFLINE chunkIndex=1 requested=1 accepted=1
+10:02:50.919 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排完成 operation=OFFLINE scope=IDS requested=2 submitted=2 accepted=1 skipped=0 failed=1
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:50.939 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排开始 operation=OFFLINE scope=IDS requested=2
+10:02:50.941 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线开始 requested=2
+10:02:50.947 [main] WARN com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量生命周期受限 operation=OFFLINE chunkIndex=1 rejected=1 remaining=1
+10:02:50.947 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线开始 requested=1
+10:02:50.952 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=null commandCount=1 inserted=1
+10:02:50.952 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线 outbox 已受理 requested=1 submitted=1 accepted=1 error=0 elapsedMs=0 canceledOnlineCommands=1 batchId=null commandIds=1
+10:02:50.952 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次已处理 operation=OFFLINE chunkIndex=1 requested=1 accepted=1
+10:02:50.952 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排完成 operation=OFFLINE scope=IDS requested=2 submitted=2 accepted=1 skipped=0 failed=1
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:50.976 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排开始 operation=ONLINE scope=IDS requested=1
+10:02:50.983 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量上线开始 requested=1
+10:02:50.995 [main] WARN com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量生命周期受限 operation=ONLINE chunkIndex=1 rejected=1 remaining=0
+10:02:50.995 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排完成 operation=ONLINE scope=IDS requested=1 submitted=1 accepted=0 skipped=0 failed=1
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:51.030 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排开始 operation=ONLINE scope=IDS requested=1
+10:02:51.033 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量上线开始 requested=1
+10:02:51.037 [main] WARN com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量生命周期受限 operation=ONLINE chunkIndex=1 rejected=1 remaining=0
+10:02:51.037 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排完成 operation=ONLINE scope=IDS requested=1 submitted=1 accepted=0 skipped=0 failed=1
+[INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.423 s -- in com.armada.account.service.impl.AccountBatchLifecycleTransactionH2Test
+[INFO] Running com.armada.account.service.impl.AccountOnlineCommandServiceImplTest
+10:02:51.134 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- IP删除重登开始 proxyCount=2 onlineAccounts=2
+10:02:51.136 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线 outbox 已受理 source=ip_delete_relogin requested=2 snapshotUpdated=2 inserted=2 batchId=batch_relogin commandIds=2
+10:02:51.136 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- IP删除重登 outbox 已受理 requested=2 accepted=2
+10:02:51.139 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量上线开始 requested=2
+10:02:51.141 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量上线开始 requested=1
+10:02:51.141 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线 outbox 已受理 source=batch_online requested=1 snapshotUpdated=1 inserted=1 batchId=batch_1 commandIds=1
+10:02:51.141 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量上线 outbox 已受理 requested=1 submitted=1 accepted=1 timeout=0 proxyRequired=0 error=0 remote=0 elapsedMs=0
+10:02:51.142 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线开始 accountId=100
+10:02:51.142 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量上线开始 requested=1
+10:02:51.144 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量上线开始 requested=2
+10:02:51.146 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 抢登续上线跳过:账号不满足抢登中离线条件或已禁言 accountId=100 source=login_replaced_takeover
+10:02:51.148 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- IP删除重登跳过:未找到在线绑定账号 proxyCount=1 boundAccounts=1
+10:02:51.150 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量上线开始 requested=101
+10:02:51.151 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线 outbox 已受理 source=batch_online requested=101 snapshotUpdated=101 inserted=101 batchId=batch_101 commandIds=101
+10:02:51.152 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量上线 outbox 已受理 requested=101 submitted=101 accepted=101 timeout=0 proxyRequired=0 error=0 remote=0 elapsedMs=0
+10:02:51.154 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量上线开始 requested=2
+10:02:51.154 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线 outbox 已受理 source=batch_online requested=2 snapshotUpdated=2 inserted=2 batchId=batch_1 commandIds=2
+10:02:51.154 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量上线 outbox 已受理 requested=2 submitted=2 accepted=2 timeout=0 proxyRequired=0 error=0 remote=0 elapsedMs=0
+10:02:51.156 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线开始 accountId=100
+10:02:51.157 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线开始 accountId=100
+10:02:51.157 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线写入 outbox 前准备 command accountId=100 attemptId=oa_test_single allocatedProxyId=7 credentialFormat=BAILEYS_JSON credentialLength=22
+10:02:51.157 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线 outbox 已受理 accountId=100 allocatedProxyId=7 commandIds=1 inserted=1
+10:02:51.158 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线开始 accountId=100
+10:02:51.158 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线写入 outbox 前准备 command accountId=100 attemptId=oa_android_single allocatedProxyId=7 credentialFormat=IOS_NATIVE_FULL credentialLength=25
+10:02:51.158 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线 outbox 已受理 accountId=100 allocatedProxyId=7 commandIds=1 inserted=1
+10:02:51.160 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线开始 accountId=100
+10:02:51.160 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线写入 outbox 前准备 command accountId=100 attemptId=oa_log_single allocatedProxyId=7 credentialFormat=BAILEYS_JSON credentialLength=22
+10:02:51.160 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线 outbox 已受理 accountId=100 allocatedProxyId=7 commandIds=1 inserted=1
+10:02:51.162 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线开始 requested=2
+10:02:51.163 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线 outbox 已受理 requested=2 submitted=2 accepted=2 error=0 elapsedMs=0 canceledOnlineCommands=0 batchId=batch_offline_1 commandIds=2
+10:02:51.173 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量上线开始 requested=2
+10:02:51.173 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线 outbox 已受理 source=batch_online requested=2 snapshotUpdated=2 inserted=2 batchId=batch_1 commandIds=2
+10:02:51.173 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量上线 outbox 已受理 requested=2 submitted=2 accepted=2 timeout=0 proxyRequired=0 error=0 remote=0 elapsedMs=0
+10:02:51.175 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线开始 accountId=404
+10:02:51.175 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 抢登续上线跳过:账号处于短窗口冷却 accountId=100 source=offline_takeover
+10:02:51.179 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线开始 accountId=100
+10:02:51.179 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号代理失败重上线跳过,状态已变化 accountId=100 failedProxyId=6
+10:02:51.181 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线开始 accountId=100
+10:02:51.181 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线写入 outbox 前准备 command accountId=100 attemptId=oa_takeover_retry allocatedProxyId=7 credentialFormat=BAILEYS_JSON credentialLength=22
+10:02:51.182 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线 outbox 已受理 accountId=100 allocatedProxyId=7 commandIds=1 inserted=1
+10:02:51.183 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线开始 accountId=100
+10:02:51.183 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线写入 outbox 前准备 command accountId=100 attemptId=oa_test_single allocatedProxyId=7 credentialFormat=BAILEYS_JSON credentialLength=22
+10:02:51.184 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线开始 accountId=100
+10:02:51.186 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量上线开始 requested=1
+10:02:51.186 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线 outbox 已受理 source=batch_online requested=1 snapshotUpdated=1 inserted=1 batchId=null commandIds=1
+10:02:51.186 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量上线 outbox 已受理 requested=1 submitted=1 accepted=1 timeout=0 proxyRequired=0 error=0 remote=0 elapsedMs=0
+10:02:51.187 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线开始 accountId=100
+10:02:51.188 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线写入 outbox 前准备 command accountId=100 attemptId=oa_retry_1 allocatedProxyId=7 credentialFormat=BAILEYS_JSON credentialLength=22
+10:02:51.188 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线 outbox 已受理 accountId=100 allocatedProxyId=7 commandIds=1 inserted=1
+10:02:51.191 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线开始 requested=1000 protocolBackendFromRequest=true
+10:02:51.193 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线 outbox 已受理 requested=1000 submitted=1000 accepted=1000 error=0 elapsedMs=0 canceledOnlineCommands=0 batchId=batch_offline_1000 commandIds=1000
+10:02:51.195 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量一键抢登开始 requested=2
+10:02:51.196 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线 outbox 已受理 source=login_replaced_takeover requested=2 snapshotUpdated=2 inserted=2 batchId=batch_takeover commandIds=2
+10:02:51.198 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量上线开始 requested=2
+10:02:51.200 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线开始 accountId=100
+10:02:51.202 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量上线开始 requested=2
+10:02:51.204 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 抢登续上线跳过:账号不满足抢登中离线条件或已禁言 accountId=100 source=offline_takeover
+10:02:51.205 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线开始 accountId=100
+10:02:51.206 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量上线开始 requested=2 protocolBackendFromRequest=true
+10:02:51.207 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线 outbox 已受理 source=batch_online requested=2 snapshotUpdated=2 inserted=2 batchId=batch_1 commandIds=2
+10:02:51.207 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量上线 outbox 已受理 requested=2 submitted=2 accepted=2 timeout=0 proxyRequired=0 error=0 remote=0 elapsedMs=0 protocolBackendFromRequest=true
+10:02:51.208 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量上线开始 requested=2
+10:02:51.217 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线开始 accountId=100
+10:02:51.217 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线写入 outbox 前准备 command accountId=100 attemptId=oa_takeover_retry allocatedProxyId=7 credentialFormat=BAILEYS_JSON credentialLength=22
+10:02:51.217 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线 outbox 已受理 accountId=100 allocatedProxyId=7 commandIds=1 inserted=1
+10:02:51.219 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线开始 accountId=100
+10:02:51.220 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线写入 outbox 前准备 command accountId=100 attemptId=oa_retry_1 allocatedProxyId=7 credentialFormat=BAILEYS_JSON credentialLength=22
+10:02:51.220 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线 outbox 已受理 accountId=100 allocatedProxyId=7 commandIds=1 inserted=1
+10:02:51.221 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线开始 requested=2 protocolBackendFromRequest=true
+10:02:51.222 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量下线 outbox 已受理 requested=2 submitted=2 accepted=2 error=0 elapsedMs=0 canceledOnlineCommands=0 batchId=batch_offline_1 commandIds=2
+[INFO] Tests run: 38, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.182 s -- in com.armada.account.service.impl.AccountOnlineCommandServiceImplTest
+[INFO] Running com.armada.account.service.impl.AccountBatchTakeoverH2Test
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:51.253 [main] ERROR com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量生命周期拒绝结果不一致 operation=TAKEOVER chunkIndex=1
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:51.295 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量一键抢登开始 requested=3
+10:02:51.312 [main] WARN com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量生命周期受限 operation=TAKEOVER chunkIndex=1 rejected=1 remaining=2
+10:02:51.322 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量一键抢登开始 requested=2
+10:02:51.333 [main] INFO com.armada.platform.kafka.dispatch.ProtocolCommandDispatchTrigger -- 协议命令 outbox afterCommit dispatch 已关闭 rows=2
+10:02:51.333 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=batch_f70054e8f0134174a4ae7c22978fd1e8 commandCount=2 inserted=2
+10:02:51.334 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线 outbox 已受理 source=login_replaced_takeover requested=2 snapshotUpdated=2 inserted=2 batchId=batch_f70054e8f0134174a4ae7c22978fd1e8 commandIds=2
+10:02:51.335 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次已处理 operation=TAKEOVER chunkIndex=1 requested=2 accepted=2
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:51.372 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量一键抢登开始 requested=1
+10:02:51.382 [main] WARN com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量生命周期受限 operation=TAKEOVER chunkIndex=1 rejected=1 remaining=0
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:51.405 [main] WARN com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次失败 operation=TAKEOVER chunkIndex=1 requested=3 errorType=IllegalStateException error=database unavailable
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.183 s -- in com.armada.account.service.impl.AccountBatchTakeoverH2Test
+[INFO] Running com.armada.account.service.impl.AccountBatchLifecycleServiceImplTest
+10:02:51.410 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排开始 operation=OFFLINE scope=IDS requested=2000
+10:02:51.411 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次已处理 operation=OFFLINE chunkIndex=1 requested=1000 accepted=1000
+10:02:51.411 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次已处理 operation=OFFLINE chunkIndex=2 requested=1000 accepted=1000
+10:02:51.412 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排完成 operation=OFFLINE scope=IDS requested=2000 submitted=2000 accepted=2000 skipped=0 failed=0
+10:02:51.413 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排开始 operation=OFFLINE scope=IDS requested=3
+10:02:51.413 [main] WARN com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量生命周期受限 operation=OFFLINE chunkIndex=1 rejected=1 remaining=2
+10:02:51.413 [main] WARN com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量生命周期受限 operation=OFFLINE chunkIndex=1 rejected=1 remaining=1
+10:02:51.413 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次已处理 operation=OFFLINE chunkIndex=1 requested=1 accepted=1
+10:02:51.413 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排完成 operation=OFFLINE scope=IDS requested=3 submitted=3 accepted=1 skipped=0 failed=2
+10:02:51.418 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排开始 operation=ONLINE scope=IDS requested=2000
+10:02:51.419 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次已处理 operation=ONLINE chunkIndex=1 requested=500 accepted=500
+10:02:51.419 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次已处理 operation=ONLINE chunkIndex=2 requested=500 accepted=500
+10:02:51.419 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次已处理 operation=ONLINE chunkIndex=3 requested=500 accepted=500
+10:02:51.419 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次已处理 operation=ONLINE chunkIndex=4 requested=500 accepted=500
+10:02:51.419 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排完成 operation=ONLINE scope=IDS requested=2000 submitted=2000 accepted=2000 skipped=0 failed=0
+10:02:51.422 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量预估完成 operation=ONLINE scope=QUERY matched=1256 executable=1130 skipped=126
+10:02:51.423 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排开始 operation=ONLINE scope=IDS requested=2
+10:02:51.424 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排开始 operation=ONLINE scope=IDS requested=7
+10:02:51.424 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次已处理 operation=ONLINE chunkIndex=1 requested=1 accepted=1
+10:02:51.424 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排完成 operation=ONLINE scope=IDS requested=7 submitted=1 accepted=1 skipped=6 failed=0
+10:02:51.425 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排开始 operation=ONLINE scope=QUERY
+10:02:51.425 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次已处理 operation=ONLINE chunkIndex=1 requested=1 accepted=1
+10:02:51.425 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量游标批次已扫描 operation=ONLINE cursorIndex=1 scanned=2 afterId=2
+10:02:51.425 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排完成 operation=ONLINE scope=QUERY requested=2 submitted=1 accepted=1 skipped=1 failed=0
+10:02:51.427 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排开始 operation=OFFLINE scope=QUERY
+10:02:51.427 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次已处理 operation=OFFLINE chunkIndex=1 requested=1 accepted=1
+10:02:51.427 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量游标批次已扫描 operation=OFFLINE cursorIndex=1 scanned=2 afterId=2
+10:02:51.427 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排完成 operation=OFFLINE scope=QUERY requested=2 submitted=1 accepted=1 skipped=1 failed=0
+10:02:51.428 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排开始 operation=OFFLINE scope=IDS requested=2
+10:02:51.428 [main] WARN com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量生命周期受限 operation=OFFLINE chunkIndex=1 rejected=2 remaining=0
+10:02:51.428 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排完成 operation=OFFLINE scope=IDS requested=2 submitted=2 accepted=0 skipped=0 failed=2
+10:02:51.429 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排开始 operation=ONLINE scope=QUERY
+10:02:51.429 [main] WARN com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量生命周期受限 operation=ONLINE chunkIndex=1 rejected=1 remaining=2
+10:02:51.429 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次已处理 operation=ONLINE chunkIndex=1 requested=2 accepted=2
+10:02:51.429 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量游标批次已扫描 operation=ONLINE cursorIndex=1 scanned=3 afterId=3
+10:02:51.429 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排完成 operation=ONLINE scope=QUERY requested=3 submitted=3 accepted=2 skipped=0 failed=1
+10:02:51.429 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排开始 operation=OFFLINE scope=IDS requested=282
+10:02:51.430 [main] WARN com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量生命周期受限 operation=OFFLINE chunkIndex=1 rejected=1 remaining=281
+10:02:51.430 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次已处理 operation=OFFLINE chunkIndex=1 requested=281 accepted=281
+10:02:51.430 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排完成 operation=OFFLINE scope=IDS requested=282 submitted=282 accepted=281 skipped=0 failed=1
+10:02:51.431 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排开始 operation=ONLINE scope=IDS requested=2
+10:02:51.431 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次已处理 operation=ONLINE chunkIndex=1 requested=1 accepted=1
+10:02:51.431 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排完成 operation=ONLINE scope=IDS requested=2 submitted=1 accepted=1 skipped=1 failed=0
+10:02:51.432 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排开始 operation=OFFLINE scope=IDS requested=2
+10:02:51.432 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次已处理 operation=OFFLINE chunkIndex=1 requested=1 accepted=1
+10:02:51.432 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排完成 operation=OFFLINE scope=IDS requested=2 submitted=1 accepted=1 skipped=1 failed=0
+10:02:51.433 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量预估完成 operation=OFFLINE scope=QUERY matched=20 executable=20 skipped=0
+10:02:51.436 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排开始 operation=ONLINE scope=QUERY
+10:02:51.436 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次已处理 operation=ONLINE chunkIndex=1 requested=500 accepted=500
+10:02:51.436 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量游标批次已扫描 operation=ONLINE cursorIndex=1 scanned=500 afterId=500
+10:02:51.437 [main] WARN com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次失败 operation=ONLINE chunkIndex=2 requested=500 errorType=RuntimeException error=outbox unavailable
+10:02:51.437 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量游标批次已扫描 operation=ONLINE cursorIndex=2 scanned=500 afterId=1000
+10:02:51.437 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次已处理 operation=ONLINE chunkIndex=3 requested=100 accepted=100
+10:02:51.437 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量游标批次已扫描 operation=ONLINE cursorIndex=3 scanned=100 afterId=1100
+10:02:51.437 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量编排完成 operation=ONLINE scope=QUERY requested=1100 submitted=1100 accepted=600 skipped=0 failed=500
+[INFO] Tests run: 18, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.031 s -- in com.armada.account.service.impl.AccountBatchLifecycleServiceImplTest
+[INFO] Running com.armada.account.service.AccountCreatorDeletionServiceInMemoryTest
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+10:02:51.997 [main] INFO com.armada.account.service.impl.AccountServiceImpl -- 账号批量软删除 count=2 ids=[1, 2]
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+[INFO] Tests run: 14, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.608 s -- in com.armada.account.service.AccountCreatorDeletionServiceInMemoryTest
+[INFO] Running com.armada.account.service.AccountCreatorReservationReleaseH2Test
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.304 s -- in com.armada.account.service.AccountCreatorReservationReleaseH2Test
+[INFO] 
+[INFO] Results:
+[INFO] 
+[INFO] Tests run: 281, Failures: 0, Errors: 0, Skipped: 0
+[INFO] 
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  46.677 s
+[INFO] Finished at: 2026-10-09T10:02:52+08:00
+[INFO] ------------------------------------------------------------------------

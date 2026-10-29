@@ -1,0 +1,12 @@
+{
+  "/Users/daishuaishuai/IdeaProjects/armada/armada-api/src/main/java/com/armada/account/service/impl/AccountBatchLifecycleServiceImpl.java": "fee5209160eae2f903b3e159e0a260b07d526166a7e34c8214b948b3d1d5c9dc",
+  "/Users/daishuaishuai/IdeaProjects/armada/armada-api/src/main/java/com/armada/account/service/impl/AccountOnlineCommandServiceImpl.java": "a7de4f4ae465871f6162f63eeee4a770cdff784c86257c4cc7b4ccc264444767",
+  "/Users/daishuaishuai/IdeaProjects/armada/armada-api/src/main/java/com/armada/resource/service/impl/IpProxyServiceImpl.java": "6c3b9805a82df6ad30a22d07403fb19140b10d40567cefc7019de8e9bba166e0",
+  "/Users/daishuaishuai/IdeaProjects/armada/armada-api/src/main/java/com/armada/resource/service/impl/IpProxyOptimisticAllocator.java": "86d4464b44a96d1e71b3b91c6ab3e6c43aab5772a0456439cd91fd6ee16fa2df",
+  "/Users/daishuaishuai/IdeaProjects/armada/armada-api/src/main/java/com/armada/platform/protocol/service/impl/ProtocolCommandOutboxServiceImpl.java": "b1f474b3282d46b542c8df2ca87b3545a7e90046846673299161f2f64a1f2f34",
+  "/Users/daishuaishuai/IdeaProjects/armada/armada-api/src/main/resources/mapper/account/AccountMapper.xml": "8162e462f52e475e7a8297f3255a6a283942b5dabff07b28c84bace2cafd963b",
+  "/Users/daishuaishuai/IdeaProjects/armada/armada-api/src/main/resources/mapper/account/AccountStateMapper.xml": "1b55ae3f89c6bd3488add73da907a5e68f8883c9fa3bdaf01a568f69199d15d7",
+  "/Users/daishuaishuai/IdeaProjects/armada/armada-api/src/main/resources/mapper/account/AccountCredentialMapper.xml": "1407959356d1dac2b03f5cc56b49a49c9088ffb50325a34e135d35f1f2151242",
+  "/Users/daishuaishuai/IdeaProjects/armada/armada-api/src/main/resources/mapper/resource/IpProxyMapper.xml": "c5f77e81f591d0ff943f3dff385eb5979df5437ea44a595ba1651dba7b905476",
+  "/Users/daishuaishuai/IdeaProjects/armada/armada-api/src/main/resources/mapper/platform/protocol/ProtocolCommandOutboxMapper.xml": "d5cdf8031069e83461daa305fed59c48d0d3529fad0bdc4e041740fcabbbc3f4"
+}

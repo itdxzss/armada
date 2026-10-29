@@ -1,0 +1,92 @@
+observed_utc
+2026-10-03 04:02:40.384
+account_id	task_id	task_status	group_execution_id	role_type	availability_status	occupied_at	released_at
+1558	127	ENDED	178	4	1	NULL	NULL
+1558	127	ENDED	181	4	1	NULL	NULL
+1558	130	COMPLETED	189	4	1	NULL	NULL
+1572	136	COMPLETED	196	1	1	NULL	NULL
+1574	137	COMPLETED	197	1	1	NULL	NULL
+1572	141	COMPLETED	201	4	1	NULL	NULL
+1572	143	ENDED	207	1	1	NULL	NULL
+1572	143	ENDED	211	1	1	NULL	NULL
+1572	143	ENDED	209	1	1	NULL	NULL
+1572	144	COMPLETED	215	4	1	NULL	NULL
+1574	147	ENDED	227	1	1	NULL	NULL
+1574	151	ENDED	232	4	1	NULL	NULL
+1574	157	ENDED	247	4	1	NULL	NULL
+1572	157	ENDED	248	4	1	NULL	NULL
+1574	157	ENDED	250	4	1	NULL	NULL
+1572	158	COMPLETED	253	4	1	NULL	NULL
+1574	159	ENDED	259	4	1	NULL	NULL
+1572	159	ENDED	261	4	1	NULL	NULL
+1572	160	COMPLETED	267	4	1	NULL	NULL
+1572	160	COMPLETED	262	4	1	NULL	NULL
+1572	160	COMPLETED	265	4	1	NULL	NULL
+1572	160	COMPLETED	266	4	1	NULL	NULL
+1572	161	ENDED	272	4	1	NULL	NULL
+1572	211	ENDED	532	1	1	NULL	NULL
+1574	211	ENDED	533	1	1	NULL	NULL
+1572	211	ENDED	534	1	1	NULL	NULL
+1572	211	ENDED	535	1	1	NULL	NULL
+1572	211	ENDED	536	1	1	NULL	NULL
+1572	211	ENDED	537	1	1	NULL	NULL
+1572	212	ENDED	541	1	1	NULL	NULL
+1574	212	ENDED	542	1	1	NULL	NULL
+1572	212	ENDED	543	1	1	NULL	NULL
+1574	212	ENDED	544	1	1	NULL	NULL
+1574	212	ENDED	545	1	1	NULL	NULL
+1572	212	ENDED	546	1	1	NULL	NULL
+1572	212	ENDED	547	1	1	NULL	NULL
+1574	212	ENDED	548	1	1	NULL	NULL
+1572	212	ENDED	549	1	1	NULL	NULL
+1574	215	COMPLETED	647	1	1	NULL	NULL
+observed_utc
+2026-10-03 04:02:40.389
+id	ownership	cred_format
+43	1	2
+1558	1	1
+1572	1	1
+1574	1	1
+1719	1	1
+1755	1	1
+source	account_id	task_id	state	is_enabled	run_status	deleted_at
+contact	43	1	SKIPPED	1	3	NULL
+contact	1558	1	SKIPPED	1	3	NULL
+contact	43	2	SKIPPED	1	2	NULL
+contact	1558	2	FAILED	1	2	NULL
+contact	43	3	SKIPPED	1	2	NULL
+contact	1558	3	FAILED	1	2	NULL
+contact	43	4	SKIPPED	1	2	NULL
+contact	1558	4	FAILED	1	2	NULL
+contact	43	5	SKIPPED	1	2	NULL
+contact	1558	5	DONE	1	2	NULL
+source	account_id	join_task_id	item_status	dispatch_state	task_status	deleted_at
+join	1574	24	SUCCESS	TERMINAL	DONE	1786969326982
+join	1755	79	PENDING	WAITING	DRAFT	NULL
+join	1719	79	PENDING	WAITING	DRAFT	NULL
+source	creator_account_id	task_id	item_status	current_step	dispatch_status	task_status	deleted_at
+normal_group_creation	43	37	CREATED	DONE	NONE	SUCCESS	NULL
+normal_group_creation	43	38	FAILED	PREPARING_CONTACTS	NONE	FAILED	NULL
+normal_group_creation	43	73	CREATED	DONE	NONE	SUCCESS	NULL
+normal_group_creation	43	86	RUNNING	PREPARING_CONTACTS	SENT	RUNNING	NULL
+normal_group_creation	43	127	RUNNING	PREPARING_CONTACTS	SENT	RUNNING	NULL
+normal_group_creation	1558	127	RUNNING	PREPARING_CONTACTS	SENT	RUNNING	NULL
+normal_group_creation	43	137	CREATED	DONE	NONE	SUCCESS	NULL
+id	tenant_id	package_name	remark	phone_count
+20	1	HL0912-A8-账号145	User supplied test recipients; exclusive 40 numbers for account 145	40
+19	1	HL0912-A8-账号141	User supplied test recipients; exclusive 40 numbers for account 141	40
+18	1	HL0912-A8-账号110	User supplied test recipients; exclusive 40 numbers for account 110	40
+17	1	HL0912-A8-账号103	User supplied test recipients; exclusive 40 numbers for account 103	40
+16	1	HL0912-A8-账号71	User supplied test recipients; exclusive 41 numbers for account 71	41
+12	1	QA-[REDACTED]-Android加密回环-1条	test1完整链路；仅指定账号；WhatsApp外连已封锁；真实Signal/Noise加解密Mock ACK	1019
+11	1	9-2印度测试数据	NULL	400
+10	1	测试发送量	NULL	13949
+9	1	未开通WS测试	NULL	10
+8	1	31日测试 副本	NULL	16
+7	1	31日测试巴西	NULL	6
+5	1	测试数据包	NULL	201
+4	1	测试	NULL	13949
+2	1	QA-[REDACTED]-数据包-已覆盖代次2	自动化广覆盖验收完成：混合导入、跨批次去重、覆盖换代	203
+evidence	task_count	max_id
+current_new_group_tasks	0	NULL
+

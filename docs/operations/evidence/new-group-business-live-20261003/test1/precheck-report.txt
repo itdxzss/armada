@@ -1,0 +1,22 @@
+test1 NEW_GROUP 实时角色组合预检
+2026-10-03 北京时间12:29:08–12:30:04，只读检查；未创建任务/修改账号/占用。
+
+可以在实际表单使用：建群人分组155（沙特建群号），次管理员分组155（同组），拉手分组220（926）；每群拉手数1，初始/附带站台0。
+必须仍从执行记录确认最后实际账号，不能把候选当作已执行角色。
+
+不同账号保障源码：PullTaskGroupCreateTransactionService.java:83–98先选creator并selectedIds.add，再选manager传同selectedIds；:574–585过滤已选账号。因此155两个可用账号足够让creator与manager不同，puller220是另一组保证第三个账号不同。
+PullTaskStandardSettingWriter.java:40–47独立解析各角色组，不禁止creator与manager相同groupId。
+不要改用manager220+puller220：PullTaskManagerPullerContactTransactionService.java:318–337只排除已有PULLER行，未排除MANAGER；occupancy_key也仅对role2有效(V093:174–180)，不能以同组两个在线就假定角色互异。
+
+候选即时结果（precheck-protocol.txt）：
+- 155 / 1609 / 尾6650 / Web：DB account_state2/login_state1，12:29:09.950 protocol ONLINE/wsOpen=true；最近PingAck12:29:01.224，失败连续数0。
+- 155 / 1610 / 尾2107 / Web：DB2/1，12:29:13.017 protocol ONLINE/wsOpen=true；最近PingAck12:29:04.220，失败连续数0。
+- 220 / 1792 / 尾7120 / Android：DB2/1，12:29:13.022 protocol Code0/Data明确“账号[REDACTED]在线”。
+- 220 / 1795 / 尾5205 / Android：DB2/1，12:29:13.026同上。
+以上risk/cooldown/pulling/mute等无有效限制；在线只是可开始验收的前提，不证明建群、资料、成员结果。
+
+precheck-occupancy.txt于12:29:10重查角色记录及组引用：155只存在旧COMPLETED/ENDED拉群记录；普通建群task140 FAILED、141 PARTIAL均终态。220无这些占用记录。跨pull、marketing、group_pull、hyperlink、feed、contact、join、normal creator/member/secondary/anchor、group_creation_marketing、mutual contact、script均未发现155/220活跃或暂停/计划占用。
+precheck-groups.txt于12:30:04全量活跃组定义：normal127仍RUNNING引用148/149/145；join79 DRAFT引用219、join80 RUNNING引用208；其他活动normal组不含155/220；pull和script活动定义无结果；marketing按1/2/5状态无结果。动态contact暂停1→148，hyperlink运行27→217，feed活动查询空。
+149与148、219继续排除，不释放、不借用。
+
+受控料子已由最新用户指定两个本地文件，导入/任务创建由主代理执行，本子代理未读取或打印号码文件。

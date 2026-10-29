@@ -1,0 +1,90 @@
+[
+  {
+    "mode": "pn",
+    "iso": "REPEATABLE READ",
+    "counts": {
+      "success": 81,
+      "matching_gap_cycle": 19
+    },
+    "examples": [
+      "stress_pn_repeatable-13-innodb.txt",
+      "stress_pn_repeatable-22-innodb.txt",
+      "stress_pn_repeatable-32-innodb.txt",
+      "stress_pn_repeatable-41-innodb.txt",
+      "stress_pn_repeatable-48-innodb.txt",
+      "stress_pn_repeatable-50-innodb.txt",
+      "stress_pn_repeatable-51-innodb.txt",
+      "stress_pn_repeatable-58-innodb.txt",
+      "stress_pn_repeatable-61-innodb.txt",
+      "stress_pn_repeatable-70-innodb.txt",
+      "stress_pn_repeatable-71-innodb.txt",
+      "stress_pn_repeatable-78-innodb.txt",
+      "stress_pn_repeatable-80-innodb.txt",
+      "stress_pn_repeatable-83-innodb.txt",
+      "stress_pn_repeatable-88-innodb.txt",
+      "stress_pn_repeatable-90-innodb.txt",
+      "stress_pn_repeatable-92-innodb.txt",
+      "stress_pn_repeatable-94-innodb.txt",
+      "stress_pn_repeatable-97-innodb.txt"
+    ]
+  },
+  {
+    "mode": "empty",
+    "iso": "REPEATABLE READ",
+    "counts": {
+      "success": 100
+    },
+    "examples": []
+  },
+  {
+    "mode": "existing",
+    "iso": "REPEATABLE READ",
+    "counts": {
+      "success": 100
+    },
+    "examples": []
+  },
+  {
+    "mode": "pn",
+    "iso": "READ COMMITTED",
+    "counts": {
+      "success": 82,
+      "other_deadlock": 3,
+      "matching_gap_cycle": 15
+    },
+    "examples": [
+      "stress_pn_read-12-innodb.txt",
+      "stress_pn_read-15-innodb.txt",
+      "stress_pn_read-19-innodb.txt",
+      "stress_pn_read-29-innodb.txt",
+      "stress_pn_read-34-innodb.txt",
+      "stress_pn_read-35-innodb.txt",
+      "stress_pn_read-43-innodb.txt",
+      "stress_pn_read-46-innodb.txt",
+      "stress_pn_read-50-innodb.txt",
+      "stress_pn_read-51-innodb.txt",
+      "stress_pn_read-62-innodb.txt",
+      "stress_pn_read-69-innodb.txt",
+      "stress_pn_read-71-innodb.txt",
+      "stress_pn_read-73-innodb.txt",
+      "stress_pn_read-83-innodb.txt",
+      "stress_pn_read-88-innodb.txt"
+    ]
+  },
+  {
+    "mode": "empty",
+    "iso": "READ COMMITTED",
+    "counts": {
+      "success": 100
+    },
+    "examples": []
+  },
+  {
+    "mode": "existing",
+    "iso": "READ COMMITTED",
+    "counts": {
+      "success": 100
+    },
+    "examples": []
+  }
+]

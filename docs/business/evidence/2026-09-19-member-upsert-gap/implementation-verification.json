@@ -1,0 +1,65 @@
+{
+  "date": "2026-09-19",
+  "scope": "local main repository only; no deployment",
+  "mysql": "8.4.8, Testcontainers, REPEATABLE READ",
+  "concurrent_service_rounds": 100,
+  "transactions_per_round": 2,
+  "concurrent_service_failures": 0,
+  "suites": [
+    {
+      "name": "com.armada.group.service.impl.AccountGroupCurrentSnapshotPersistenceImplTest",
+      "tests": "19",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "failures_detail": []
+    },
+    {
+      "name": "com.armada.group.mapper.AccountGroupCurrentSnapshotMapperH2Test",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "failures_detail": []
+    },
+    {
+      "name": "com.armada.group.service.impl.AccountGroupControlledBatchPersistenceTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "failures_detail": []
+    },
+    {
+      "name": "com.armada.group.service.impl.AccountGroupCurrentSnapshotPersistenceMySqlTest",
+      "tests": "41",
+      "failures": "2",
+      "errors": "0",
+      "skipped": "0",
+      "failures_detail": [
+        {
+          "test": "preciseSelfMembershipDualWriteKeepsClassificationAndExitMeaning",
+          "message": "\nExpecting map:\n  {\"first_post_control_observed_at\"=null, \"last_joined_at\"=2000L, \"membership_active_since_at\"=2000L, \"presence_source\"=\"WGP2_ADD\", \"presence_status\"=1, \"was_in_initial_baseline\"=null}\nto contain entries:\n  [\"was_in_initial_baseline\"=0]\nbut the following map entries had different values:\n  [\"was_in_initial_baseline\"=null (expected: 0)]"
+        },
+        {
+          "test": "completeSnapshotOf400GroupsUsesAtMostElevenStatementsAndClassifiesBaselineSafely",
+          "message": "\nexpected: 200\n but was: 400"
+        }
+      ]
+    }
+  ],
+  "baseline_without_this_fix": {
+    "tests": "2",
+    "failures": "2",
+    "failures_detail": [
+      {
+        "test": "preciseSelfMembershipDualWriteKeepsClassificationAndExitMeaning",
+        "message": "\nExpecting map:\n  {\"first_post_control_observed_at\"=null, \"last_joined_at\"=2000L, \"membership_active_since_at\"=2000L, \"presence_source\"=\"WGP2_ADD\", \"presence_status\"=1, \"was_in_initial_baseline\"=null}\nto contain entries:\n  [\"was_in_initial_baseline\"=0]\nbut the following map entries had different values:\n  [\"was_in_initial_baseline\"=null (expected: 0)]"
+      },
+      {
+        "test": "completeSnapshotOf400GroupsUsesAtMostElevenStatementsAndClassifiesBaselineSafely",
+        "message": "\nexpected: 200\n but was: 400"
+      }
+    ]
+  }
+}

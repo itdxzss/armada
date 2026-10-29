@@ -1,0 +1,99 @@
+{
+  "environment": "test1",
+  "scope": [
+    "backend",
+    "frontend",
+    "CP-10",
+    "CP-8"
+  ],
+  "backendCommit": "384a264496d01535d4a8488765e6dd000f06c7d4",
+  "frontendCommit": "5a522b8a171cc9bedf28072c8e4c785947d7d24f",
+  "releaseBranch": "release/cloud-registration-test1-20260917",
+  "pushed": false,
+  "validation": {
+    "releaseBackendTests": 59,
+    "releaseFrontendTests": 19,
+    "helperTests": 69,
+    "frontendLintAndTypecheck": true,
+    "deployScriptTests": true,
+    "prodPackageTest": "known missing prod/protocol/.env.example; not test1 deploy path"
+  },
+  "runtime": {
+    "containers": [
+      {
+        "name": "/armada-backend",
+        "status": "running",
+        "restarts": 0,
+        "imageChanged": true,
+        "image": "sha256:e61cf135bca32efe5bcf318c942b6788f19688fdcd12096a42495d61f3e08064"
+      },
+      {
+        "name": "/armada-nginx",
+        "status": "running",
+        "restarts": 0,
+        "imageChanged": true,
+        "image": "sha256:ee3daec4629309e81e19ed8d1a7659ec9d56096b4318839bd9dd356789cbe479"
+      }
+    ],
+    "changedEnvironmentKeys": [
+      "ARMADA_DEVICE_REGISTRATION_CLIENTS_JSON"
+    ],
+    "previousIdentitiesPreserved": true,
+    "cloudPhones": [
+      {
+        "tenantId": 1,
+        "deviceId": "66e80438-ebd5-4668-bc47-56b564e164a4",
+        "cloudPhoneId": "1724031385095771",
+        "displayName": "CP-10"
+      },
+      {
+        "tenantId": 1,
+        "deviceId": "3be83798-26a8-42c3-b7ce-cdd9a7763ab9",
+        "cloudPhoneId": "1723909536368062",
+        "displayName": "CP-8"
+      }
+    ],
+    "testIdentitiesUnchanged": true,
+    "startupComplete": true,
+    "v200Applied": true,
+    "migrationEvidence": [
+      "2026-09-17 02:32:50.484 INFO  [main] traceId= o.f.core.internal.command.DbMigrate - Migrating schema `armada` to version \"200 - device registration failure\"",
+      "2026-09-17 02:32:50.601 INFO  [main] traceId= o.f.core.internal.command.DbMigrate - Successfully applied 1 migration to schema `armada`, now at version v200 (execution time 00:00.066s)"
+    ],
+    "runningJarSha256": "402b6264159a68605417366fc6105205c746fba6b8f72967d0bc89540bd6d2d4",
+    "runningIndexSha256": "606b3dd1d3550c8714c6706340de0017be419fad53009055a11f04862f2167dd"
+  },
+  "deviceAuthChecks": [
+    {
+      "device": "CP-10",
+      "matchingIdentity": true,
+      "httpStatus": 404,
+      "assertion": "authenticated_no_permit"
+    },
+    {
+      "device": "CP-8",
+      "matchingIdentity": true,
+      "httpStatus": 404,
+      "assertion": "authenticated_no_permit"
+    },
+    {
+      "device": "CP-8",
+      "matchingIdentity": false,
+      "httpStatus": 401,
+      "assertion": "cross_device_token_rejected"
+    }
+  ],
+  "ordersCreatedByThisDeployment": 0,
+  "workersStarted": false,
+  "browserVerification": "Fresh test1 tab displays login; authenticated UI selection not checked",
+  "initialDeployment": {
+    "exitCode": 1,
+    "reason": "frontend static files built under umask 077; nginx could not read index.html"
+  },
+  "frontendRemediation": {
+    "exitCode": 0,
+    "action": "same committed source rebuilt with umask 022 and redeployed frontend only"
+  },
+  "backup": "/home/app/armada-cloud-registration-backups/20260917-multiselect",
+  "unrelatedMainWorktreeEditsPreserved": true
+}

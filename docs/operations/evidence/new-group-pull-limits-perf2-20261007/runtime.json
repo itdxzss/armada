@@ -1,0 +1,89 @@
+{
+  "environment": "perf2",
+  "containers": [
+    {
+      "name": "armada-backend",
+      "image": "sha256:1e1fec7f7e8345df26c26f431a77807e692efc4a3b9347038a11409d2e09cbca",
+      "status": "running",
+      "restarts": 0,
+      "started": "2026-10-07T03:21:42.222961367Z",
+      "composeProject": "armada-perf",
+      "mounts": [
+        {
+          "source": "/home/app/armada-deploy/data/pull-task-avatars",
+          "destination": "/app/data/pull-task-avatars"
+        },
+        {
+          "source": "/home/app/armada-deploy/logs/backend",
+          "destination": "/app/logs"
+        },
+        {
+          "source": "/home/app/armada-deploy/data/marketing-exports",
+          "destination": "/app/data/marketing-exports"
+        }
+      ]
+    },
+    {
+      "name": "armada-nginx",
+      "image": "sha256:bccd2487931c87bee0c0add43928e71d94cc35cc7549bef3df3586c51d962d0e",
+      "status": "running",
+      "restarts": 0,
+      "started": "2026-10-07T03:21:42.592643792Z",
+      "composeProject": "armada-perf",
+      "mounts": [
+        {
+          "source": "/home/app/armada-deploy/logs/nginx",
+          "destination": "/var/log/nginx"
+        }
+      ]
+    }
+  ],
+  "config": {
+    "AUTH_SESSION_KEY_PREFIX": "armada:perf2:",
+    "PROTOCOL_ANDROID_BASE_URL": "http://172.31.40.84:8001",
+    "NORMAL_GROUP_CREATION_RESULT_TOPIC": "armada.perf.protocol.normal-group.events.v1",
+    "database_schema": "armada_perf"
+  },
+  "startup_evidence": [
+    "2026-10-07 03:21:52.692 INFO  [main] traceId= o.f.core.internal.command.DbValidate - Successfully validated 216 migrations (execution time 00:00.278s)",
+    "2026-10-07 03:21:52.725 INFO  [main] traceId= o.f.core.internal.command.DbMigrate - Current version of schema `armada_perf`: 213",
+    "2026-10-07 03:21:52.736 INFO  [main] traceId= o.f.core.internal.command.DbMigrate - Schema `armada_perf` is up to date. No migration necessary.",
+    "2026-10-07 03:22:03.025 INFO  [main] traceId= com.armada.boot.Application - Started Application in 19.724 seconds (process running for 20.782)"
+  ],
+  "startup_error_count": 0,
+  "disk_jar_sha256": "aa2e01c1a2beb2e9ec2b3bf630c05e31d2548d66035c45f0d8c5b99af9bd8f3e",
+  "running_jar_sha256": "aa2e01c1a2beb2e9ec2b3bf630c05e31d2548d66035c45f0d8c5b99af9bd8f3e",
+  "http": {
+    "/": {
+      "status": 200,
+      "sha256": "534557fb5c0e1b9a0193c97b8c64dff0e87462fd525f5332e1d848bd30de2918"
+    },
+    "/platform-config.json": {
+      "status": 200,
+      "sha256": "dda3c62a20a269c2e626ee6135b4b58d52ab7111709be469f39344f2c5aa0124",
+      "has_environment_title": true
+    },
+    "/api/account-groups": {
+      "status": 401,
+      "sha256": "af82b15d757c0e0c4a0016d40cc7194166d2ccbec7d96b4d4afbc97b02767232",
+      "code": 40104
+    }
+  },
+  "artifact_verification": {
+    "disk_frontend_files_matched": 618,
+    "running_static_files_matched": 617,
+    "platform_config": "rendered perf2 title",
+    "public_index_sha256": "534557fb5c0e1b9a0193c97b8c64dff0e87462fd525f5332e1d848bd30de2918"
+  },
+  "deployment": {
+    "exit_code": 0,
+    "backend": "SUCCESS",
+    "frontend": "SUCCESS",
+    "protocol": "SKIPPED",
+    "zhuan": "SKIPPED"
+  },
+  "deep_check": {
+    "exit_code": 0,
+    "result": "passed"
+  }
+}

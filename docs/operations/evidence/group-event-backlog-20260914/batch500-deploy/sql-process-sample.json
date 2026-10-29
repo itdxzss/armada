@@ -1,0 +1,68 @@
+{
+  "samples": 32,
+  "sampleSeconds": 8,
+  "states": {
+    "update": 17,
+    "waiting for handler commit": 2,
+    "statistics": 1,
+    "executing": 3
+  },
+  "queries": [
+    {
+      "operation": "INSERT",
+      "tables": "group_link_preview,owner_phone",
+      "state": "update",
+      "hits": 11,
+      "redactedShape": "INSERT INTO group_link_preview (group_link_id, owner_phone, creator_country_iso2, creator_continent_code, last_preview_at, metadata_observed_at, created_at, updated_at, tenant_id) VALUES (?, ?, ?, ?, COALESCE(?, ?, ?), C"
+    },
+    {
+      "operation": "INSERT",
+      "tables": "subject,wa_group_profile",
+      "state": "update",
+      "hits": 4,
+      "redactedShape": "INSERT INTO wa_group_profile (group_id, subject, subject_source, subject_observed_at, description, description_source, description_observed_at, announce_only, announce_only_source, announce_only_observed_at, admin_only_e"
+    },
+    {
+      "operation": "commit",
+      "tables": "",
+      "state": "waiting for handler commit",
+      "hits": 2,
+      "redactedShape": "commit"
+    },
+    {
+      "operation": "SELECT",
+      "tables": "group_link,wa_group",
+      "state": "executing",
+      "hits": 2,
+      "redactedShape": "SELECT handle.id FROM group_link handle LEFT JOIN wa_group current_group ON current_group.tenant_id = handle.tenant_id AND current_group.id = handle.group_id AND current_group.tenant_id = ? WHERE (current_group.group_jid"
+    },
+    {
+      "operation": "INSERT",
+      "tables": "pn_jid,wa_group_participant",
+      "state": "update",
+      "hits": 1,
+      "redactedShape": "INSERT INTO wa_group_participant (group_id, pn_jid, lid_jid, phone, presence_status, presence_source, presence_observed_at, presence_event_id, last_joined_at, last_join_event_at, last_join_source_event_id, last_exited_at"
+    },
+    {
+      "operation": "INSERT",
+      "tables": "id,wa_group_profile",
+      "state": "update",
+      "hits": 1,
+      "redactedShape": "INSERT INTO wa_group_profile ( tenant_id, group_id, created_at, updated_at ) VALUES ( ?, ?, ?, ? ) ON DUPLICATE KEY UPDATE id = wa_group_profile.id"
+    },
+    {
+      "operation": "SELECT",
+      "tables": "group_link",
+      "state": "statistics",
+      "hits": 1,
+      "redactedShape": "SELECT SUBSTRING(handle.link_url, CHAR_LENGTH(?) + ?) AS groupJid, handle.id AS groupLinkId FROM group_link handle WHERE handle.tenant_id = ? AND handle.group_id IS NULL AND handle.link_url IN ( CONCAT(?, ?) ) ORDER BY h"
+    },
+    {
+      "operation": "SELECT",
+      "tables": "wa_group_participant",
+      "state": "executing",
+      "hits": 1,
+      "redactedShape": "SELECT id, group_id AS groupId, pn_jid AS pnJid, lid_jid AS lidJid, phone FROM wa_group_participant WHERE tenant_id = ? AND ( (group_id = ? AND (pn_jid = ? OR lid_jid = null OR (? IS NOT NULL AND phone = ?))) OR (group_i"
+    }
+  ]
+}

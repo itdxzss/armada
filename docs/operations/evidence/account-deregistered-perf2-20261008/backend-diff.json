@@ -1,0 +1,17 @@
+{
+  "old_sha256": "aa2e01c1a2beb2e9ec2b3bf630c05e31d2548d66035c45f0d8c5b99af9bd8f3e",
+  "new_sha256": "afe733c0ae4a070b7b4bb81d4e4b107486c83caaa6a5101d3e431e3f43c92fad",
+  "changed": [
+    "BOOT-INF/classes/com/armada/account/service/impl/AccountBatchLifecycleServiceImpl.class",
+    "BOOT-INF/classes/mapper/account/AccountCreatorDeletionMapper.xml",
+    "BOOT-INF/classes/com/armada/account/model/enums/AccountBatchSkipReason.class",
+    "BOOT-INF/classes/com/armada/account/service/impl/AccountServiceImpl.class",
+    "BOOT-INF/classes/com/armada/account/model/vo/AccountBatchPreviewRow.class",
+    "BOOT-INF/classes/mapper/account/AccountMapper.xml",
+    "BOOT-INF/classes/com/armada/account/model/entity/AccountStateCode.class"
+  ],
+  "added": [
+    "BOOT-INF/classes/db/migration/V214__account_deregistered_state.sql"
+  ],
+  "removed": []
+}

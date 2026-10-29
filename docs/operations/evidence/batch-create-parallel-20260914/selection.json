@@ -1,0 +1,41 @@
+{
+  "environment": "test1",
+  "tenantId": 1,
+  "creatorIds": [
+    745,
+    746,
+    752,
+    774,
+    781,
+    782,
+    783,
+    784,
+    913,
+    1576
+  ],
+  "memberIds": [
+    687,
+    690,
+    692,
+    703,
+    708,
+    710,
+    717,
+    722,
+    734,
+    735,
+    739,
+    743,
+    744,
+    1578
+  ],
+  "adminIds": [
+    687,
+    690,
+    692
+  ],
+  "groupsPerCreator": 50,
+  "target": 500,
+  "maxConcurrency": 10,
+  "previousCreatorId": 685
+}

@@ -1,0 +1,10 @@
+{
+  "accounts-final.tsv": "93eb2bccecec8618de07f4799f19b8d86dcf8efb60bf1a9716512e12cc700d2a",
+  "analysis-ack.json": "27305ac0c527a182f92c289e7f8dc73481edf44581d59c3fd6c18f45203d576f",
+  "protocol-ack.jsonl": "31bad1d141090f3c957a098cf06f959d4d0144370a2c9f4e2915df155b56d199",
+  "results-after-stop.tsv": "3f410599a9d0914e9657e8d7fada1a15642a5d5bee4de9a72742c8c665a1d49d",
+  "results-final.tsv": "f00b706fda8bb29c716d806fcd2db9db2c759de40eecc7bdd7db9e85e298543f",
+  "results-initial.tsv": "46f3f1c9604966836b66b32d673595f15be7e19ad16d8179ed9c69e122b6366f",
+  "sampling.json": "5dccdbf39ff8d0c0959463ed2c58725121d8bbf0e781b914530756a3bbcb2de7",
+  "summary.json": "c2df64eba9c4bb73bc0d2f5907d16c2a77c80e0835bd76f592ca0b0b3b7fde73"
+}

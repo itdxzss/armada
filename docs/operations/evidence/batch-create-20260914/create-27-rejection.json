@@ -1,0 +1,14 @@
+{
+  "environment": "test1",
+  "creatorAccountId": 685,
+  "subject": "Batch-batch-20260914-02-1-27",
+  "observedAt": "2026-09-14T01:59:48.356Z",
+  "source": "Android node3 zhuan-node HTTP request completion log",
+  "sourceHost": "13.232.214.247",
+  "httpStatus": 200,
+  "businessCode": 1003,
+  "message": "创建群聊失败, rate-overlimit, Code: 429",
+  "whatsappCode": "429",
+  "classification": "CREATE_REJECTED",
+  "followup": "Creator remained ONLINE; realtime group list returned Code 0 and no exact subject match. No create replay was sent."
+}

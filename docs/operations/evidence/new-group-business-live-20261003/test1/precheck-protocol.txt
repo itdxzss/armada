@@ -1,0 +1,16 @@
+observed_utc
+2026-10-03 04:29:08.985
+id	account_group_id	phone_tail	protocol_id	account_state	login_state	risk_status	risk_end_time	cooldown_until	pulling_restriction_until	mute_status	platform_message_restriction_active	platform_message_restriction_until	fallback_message_restriction_until	restriction_reason_code	state_source	last_state_sync_time
+1572	149	2185	ANDROID	2	1	NULL	NULL	NULL	NULL	NULL	0	NULL	NULL	NULL	STATE_CHANGED	1791001189744
+1574	149	8336	ANDROID	2	1	NULL	NULL	NULL	NULL	NULL	0	NULL	NULL	NULL	STATE_CHANGED	1791001197709
+1609	155	6650	WEB	2	1	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	STATE_CHANGED	1791001194758
+1610	155	2107	WEB	2	1	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	STATE_CHANGED	1791001188816
+1792	220	7120	ANDROID	2	1	NULL	NULL	NULL	NULL	NULL	0	NULL	NULL	NULL	STATE_CHANGED	1791001407107
+1795	220	5205	ANDROID	2	1	NULL	NULL	NULL	NULL	NULL	0	NULL	NULL	NULL	STATE_CHANGED	1791001187241
+
+{"id": 1572, "phone_tail": "2185", "protocol": "ANDROID", "checked_at": "2026-10-03T04:29:09.027214+00:00", "http": 200, "Code": 0, "Msg": "", "response_keys": ["Code", "Data", "Msg"], "Data": "账号 [REDACTED] 在线"}
+{"id": 1574, "phone_tail": "8336", "protocol": "ANDROID", "checked_at": "2026-10-03T04:29:09.032532+00:00", "http": 200, "Code": 0, "Msg": "", "response_keys": ["Code", "Data", "Msg"], "Data": "账号 [REDACTED] 在线"}
+{"id": 1609, "phone_tail": "6650", "protocol": "WEB", "checked_at": "2026-10-03T04:29:09.950966+00:00", "http": 200, "state": "ONLINE", "workerId": "armada-protocol-w2", "evidence": {"wsOpen": true, "connectionField": "open", "lastDateRecv": "2026-10-03T04:29:01.224Z", "lastPingAckAt": "2026-10-03T04:29:01.224Z", "ageMs": 8725, "keepAliveIntervalMs": 18203, "keepAliveJitterMinMs": 15000, "keepAliveJitterMaxMs": 20000, "lastDisconnectReason": null, "lastProbeRttMs": 374, "consecutivePingFailures": 0}, "response_keys": ["accountId", "state", "stateSource", "lastStateSyncTime", "cooldownUntil", "evidence", "business", "deviceProfile", "browserDisplay", "accountType", "workerId", "reportedAt"]}
+{"id": 1610, "phone_tail": "2107", "protocol": "WEB", "checked_at": "2026-10-03T04:29:13.017073+00:00", "http": 200, "state": "ONLINE", "workerId": "armada-protocol-w3", "evidence": {"wsOpen": true, "connectionField": "open", "lastDateRecv": "2026-10-03T04:29:04.220Z", "lastPingAckAt": "2026-10-03T04:29:04.220Z", "ageMs": 8795, "keepAliveIntervalMs": 17903, "keepAliveJitterMinMs": 15000, "keepAliveJitterMaxMs": 20000, "lastDisconnectReason": null, "lastProbeRttMs": 408, "consecutivePingFailures": 0}, "response_keys": ["accountId", "state", "stateSource", "lastStateSyncTime", "cooldownUntil", "evidence", "business", "deviceProfile", "browserDisplay", "accountType", "workerId", "reportedAt"]}
+{"id": 1792, "phone_tail": "7120", "protocol": "ANDROID", "checked_at": "2026-10-03T04:29:13.022052+00:00", "http": 200, "Code": 0, "Msg": "", "response_keys": ["Code", "Data", "Msg"], "Data": "账号 [REDACTED] 在线"}
+{"id": 1795, "phone_tail": "5205", "protocol": "ANDROID", "checked_at": "2026-10-03T04:29:13.026222+00:00", "http": 200, "Code": 0, "Msg": "", "response_keys": ["Code", "Data", "Msg"], "Data": "账号 [REDACTED] 在线"}

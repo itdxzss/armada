@@ -1,0 +1,5 @@
+observed_utc
+2026-10-03 04:47:22.035
+id	stage	create_step	manual_paused	group_jid	reason_code	reason_message	profile_verified_at	profile_verified_command_id	next_run_at	updated_at
+659	9	2	1	NULL	GROUP_CREATE_RESULT_UNCONFIRMED	建群结果未知，已停止自动重建，请人工核对：建群结果无法确认	NULL	NULL	1791002733873	1791002733873
+

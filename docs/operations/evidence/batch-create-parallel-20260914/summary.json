@@ -1,0 +1,17 @@
+{
+  "observedAt": "2026-09-14T02:55:23.581700+00:00",
+  "target": 500,
+  "created": 353,
+  "protocolVerified": 353,
+  "controlRegistered": 94,
+  "controlMatched": 88,
+  "readyLinks": 73,
+  "pausedFor429": [
+    746,
+    774,
+    781,
+    782,
+    784,
+    1576
+  ]
+}

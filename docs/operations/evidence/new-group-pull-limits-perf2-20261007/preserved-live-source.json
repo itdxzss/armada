@@ -1,0 +1,12 @@
+{
+  "armada": {
+    "armada-api/src/main/java/com/armada/account/service/impl/AccountBatchLifecycleServiceImpl.java": "fee5209160eae2f903b3e159e0a260b07d526166a7e34c8214b948b3d1d5c9dc",
+    "armada-api/src/main/java/com/armada/account/service/impl/AccountOnlineCommandServiceImpl.java": "a7de4f4ae465871f6162f63eeee4a770cdff784c86257c4cc7b4ccc264444767",
+    "armada-api/src/main/java/com/armada/platform/protocol/service/impl/ProtocolCommandOutboxServiceImpl.java": "b1f474b3282d46b542c8df2ca87b3545a7e90046846673299161f2f64a1f2f34",
+    "armada-api/src/main/java/com/armada/platform/protocol/exception/ProtocolAccountCommandRejectedException.java": "a161933b6ac3256ed2c315c074a7c9bbf83b7706989d47dcc9b752295f00f372"
+  },
+  "wheel-saas-pure-web": {
+    "src/views/account/index/account-batch-operation.ts": "1d77b8e84ac69118dbf08b550268c44c89fc7a044b4f85b72fdb24370b9455bf",
+    "src/views/account/index/composables/useAccountListPage.ts": "f933e87818ad5ff84d651bdcc230289ba1e15649da82c543db30eb7fa1b4d428"
+  }
+}

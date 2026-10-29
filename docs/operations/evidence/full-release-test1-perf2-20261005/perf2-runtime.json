@@ -1,0 +1,9 @@
+{
+  "environment": "perf2",
+  "localJarSha256": "04d78152260fb38624efa5045dd1750a05a5be03eeb58aa8f87e2018204eb107",
+  "localIndexSha256": "c030c8a0a0904167b26e310840d07b313248aebf8113017efca9de3a2177892b",
+  "publicIndexSha256": "c030c8a0a0904167b26e310840d07b313248aebf8113017efca9de3a2177892b",
+  "runtime": "/armada-backend|running|0|2026-10-05T10:40:35.481800232Z|sha256:6615d0fbc49c3c01853abbe0e465e67f65f60a1c03562626321d8396e477d9ec\n/armada-nginx|running|0|2026-10-05T10:40:35.862691157Z|sha256:3751ccb9e6d3a5e1375e65969a4e93f8cda4d6deadc61f69f8add44ca6661293\n04d78152260fb38624efa5045dd1750a05a5be03eeb58aa8f87e2018204eb107  /app/app.jar\nc030c8a0a0904167b26e310840d07b313248aebf8113017efca9de3a2177892b  /usr/share/nginx/html/saas/index.html\n{\n  \"Version\": \"6.2.0\",\n  \"Title\": \"第二套环境\",\n  \"FixedHeader\": true,\n  \"HiddenSideBar\": false,\n  \"MultiTagsCache\": false,\n  \"KeepAlive\": true,\n  \"Layout\": \"vertical\",\n  \"Theme\": \"light\",\n  \"DarkMode\": false,\n  \"OverallStyle\": \"light\",\n  \"Grey\": false,\n  \"Weak\": false,\n  \"HideTabs\": false,\n  \"HideFooter\": false,\n  \"Stretch\": false,\n  \"SidebarStatus\": true,\n  \"EpThemeColor\": \"#409EFF\",\n  \"ShowLogo\": true,\n  \"ShowModel\": \"smart\",\n  \"MenuArrowIconNoTransition\": false,\n  \"CachingAsyncRoutes\": false,\n  \"TooltipEffect\": \"light\",\n  \"ResponsiveStorageNameSpace\": \"responsive-\",\n  \"MenuSearchHistory\": 6\n}\n2026-10-05 10:40:46.196 INFO  [main] traceId= o.f.core.internal.command.DbValidate - Successfully validated 213 migrations (execution time 00:00.234s)\n2026-10-05 10:40:46.231 INFO  [main] traceId= o.f.core.internal.command.DbMigrate - Current version of schema `armada_perf`: 210\n2026-10-05 10:40:46.243 INFO  [main] traceId= o.f.core.internal.command.DbMigrate - Schema `armada_perf` is up to date. No migration necessary.\n",
+  "platformTitle": "第二套环境",
+  "publicUrl": "http://armada.3.110.124.52.nip.io/"
+}

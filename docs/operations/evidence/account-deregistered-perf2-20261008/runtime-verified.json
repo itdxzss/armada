@@ -1,0 +1,81 @@
+{
+  "environment": "perf2",
+  "containers": [
+    {
+      "name": "armada-backend",
+      "image": "sha256:ec625a2242499531f0fc52e745bf89285c5fb76ee56fa1f1824a272502eb407f",
+      "status": "running",
+      "restarts": 0,
+      "started": "2026-10-08T07:43:14.03109427Z",
+      "composeProject": "armada-perf",
+      "mounts": [
+        {
+          "source": "/home/app/armada-deploy/logs/backend",
+          "destination": "/app/logs"
+        },
+        {
+          "source": "/home/app/armada-deploy/data/marketing-exports",
+          "destination": "/app/data/marketing-exports"
+        },
+        {
+          "source": "/home/app/armada-deploy/data/pull-task-avatars",
+          "destination": "/app/data/pull-task-avatars"
+        }
+      ]
+    },
+    {
+      "name": "armada-nginx",
+      "image": "sha256:f35da237315a184afb00edba896aecd557735057902448501d5a4504d9848a73",
+      "status": "running",
+      "restarts": 0,
+      "started": "2026-10-08T07:41:49.674125383Z",
+      "composeProject": "armada-perf",
+      "mounts": [
+        {
+          "source": "/home/app/armada-deploy/logs/nginx",
+          "destination": "/var/log/nginx"
+        }
+      ]
+    }
+  ],
+  "config": {
+    "AUTH_SESSION_KEY_PREFIX": "armada:perf2:",
+    "PROTOCOL_ANDROID_BASE_URL": "http://172.31.40.84:8001",
+    "NORMAL_GROUP_CREATION_RESULT_TOPIC": "armada.perf.protocol.normal-group.events.v1",
+    "database_schema": "armada_perf"
+  },
+  "startup_evidence": [
+    "2026-10-08 07:43:24.952 INFO  [main] traceId= o.f.core.internal.command.DbValidate - Successfully validated 217 migrations (execution time 00:00.237s)",
+    "2026-10-08 07:43:24.976 INFO  [main] traceId= o.f.core.internal.command.DbMigrate - Current version of schema `armada_perf`: 213",
+    "2026-10-08 07:43:25.012 INFO  [main] traceId= o.f.core.internal.command.DbMigrate - Migrating schema `armada_perf` to version \"214 - account deregistered state\"",
+    "2026-10-08 07:43:25.103 INFO  [main] traceId= o.f.core.internal.command.DbMigrate - Successfully applied 1 migration to schema `armada_perf`, now at version v214 (execution time 00:00.044s)",
+    "2026-10-08 07:43:34.363 INFO  [main] traceId= com.armada.boot.Application - Started Application in 19.342 seconds (process running for 20.307)"
+  ],
+  "startup_error_count": 0,
+  "disk_jar_sha256": "afe733c0ae4a070b7b4bb81d4e4b107486c83caaa6a5101d3e431e3f43c92fad",
+  "running_jar_sha256": "afe733c0ae4a070b7b4bb81d4e4b107486c83caaa6a5101d3e431e3f43c92fad",
+  "http": {
+    "/": {
+      "status": 200,
+      "sha256": "8998e63ddcea5a56050722711ce6f6c717871d9330648c7f79cd8b5b80e45b41"
+    },
+    "/platform-config.json": {
+      "status": 200,
+      "sha256": "dda3c62a20a269c2e626ee6135b4b58d52ab7111709be469f39344f2c5aa0124",
+      "has_environment_title": true
+    },
+    "/api/account-groups": {
+      "status": 401,
+      "sha256": "af82b15d757c0e0c4a0016d40cc7194166d2ccbec7d96b4d4afbc97b02767232",
+      "code": 40104
+    }
+  },
+  "frontend_verification": {
+    "remote_dist_files": 618,
+    "matching_runtime_files": 617,
+    "matching_build_log_assets": 614,
+    "platform_config": "rendered 第二套环境",
+    "extra_runtime_file": "stale-chunk-reload.js from nginx Dockerfile",
+    "local_dist": "rebuilt by concurrent work after this deployment; checked release log asset names and deployed immutable content instead"
+  }
+}

@@ -1,0 +1,292 @@
+{
+  "exitCode": 0,
+  "result": {
+    "observedAtUnixMs": 1791279149093,
+    "host": "172.31.8.217",
+    "basePath": "/home/ec2-user/armada-protocol",
+    "baseExists": true,
+    "pm2ReadExit": 0,
+    "pm2Processes": [
+      {
+        "name": "protocol-runtime-collector",
+        "pid": 2473304,
+        "pm_id": 5,
+        "status": "online",
+        "execPath": "/home/ec2-user/armada-protocol/protocol-layer/scripts/collect-runtime-snapshot.sh",
+        "cwd": "/home/ec2-user/armada-protocol/protocol-layer",
+        "nodeVersion": null,
+        "createdAt": 1786280657868,
+        "uptimeAt": 1786280659581,
+        "restartCount": 1
+      },
+      {
+        "name": "protocol-traffic-dashboard",
+        "pid": 2052188,
+        "pm_id": 6,
+        "status": "online",
+        "execPath": "/home/ec2-user/armada-protocol/protocol-layer/dist/protocol-layer/src/traffic-dashboard/main.js",
+        "cwd": "/home/ec2-user/armada-protocol/protocol-layer",
+        "nodeVersion": "24.16.0",
+        "createdAt": 1791276282602,
+        "uptimeAt": 1791276282602,
+        "restartCount": 19
+      },
+      {
+        "name": "protocol-master",
+        "pid": 2051920,
+        "pm_id": 17,
+        "status": "online",
+        "execPath": "/home/ec2-user/armada-protocol/protocol-layer/dist/protocol-layer/src/server.js",
+        "cwd": "/home/ec2-user/armada-protocol/protocol-layer",
+        "nodeVersion": "24.16.0",
+        "createdAt": 1791276269621,
+        "uptimeAt": 1791276269621,
+        "restartCount": 8,
+        "startedAfterInspectedCompiledFiles": true
+      },
+      {
+        "name": "protocol-worker-1",
+        "pid": 2051921,
+        "pm_id": 18,
+        "status": "online",
+        "execPath": "/home/ec2-user/armada-protocol/protocol-layer/dist/protocol-layer/src/server.js",
+        "cwd": "/home/ec2-user/armada-protocol/protocol-layer",
+        "nodeVersion": "24.16.0",
+        "createdAt": 1791276269624,
+        "uptimeAt": 1791276269624,
+        "restartCount": 9,
+        "startedAfterInspectedCompiledFiles": true
+      },
+      {
+        "name": "protocol-worker-2",
+        "pid": 2052015,
+        "pm_id": 19,
+        "status": "online",
+        "execPath": "/home/ec2-user/armada-protocol/protocol-layer/dist/protocol-layer/src/server.js",
+        "cwd": "/home/ec2-user/armada-protocol/protocol-layer",
+        "nodeVersion": "24.16.0",
+        "createdAt": 1791276275374,
+        "uptimeAt": 1791276275374,
+        "restartCount": 9,
+        "startedAfterInspectedCompiledFiles": true
+      },
+      {
+        "name": "protocol-worker-3",
+        "pid": 2052092,
+        "pm_id": 20,
+        "status": "online",
+        "execPath": "/home/ec2-user/armada-protocol/protocol-layer/dist/protocol-layer/src/server.js",
+        "cwd": "/home/ec2-user/armada-protocol/protocol-layer",
+        "nodeVersion": "24.16.0",
+        "createdAt": 1791276278438,
+        "uptimeAt": 1791276278438,
+        "restartCount": 9,
+        "startedAfterInspectedCompiledFiles": true
+      },
+      {
+        "name": "protocol-worker-4",
+        "pid": 2052104,
+        "pm_id": 21,
+        "status": "online",
+        "execPath": "/home/ec2-user/armada-protocol/protocol-layer/dist/protocol-layer/src/server.js",
+        "cwd": "/home/ec2-user/armada-protocol/protocol-layer",
+        "nodeVersion": "24.16.0",
+        "createdAt": 1791276280355,
+        "uptimeAt": 1791276280355,
+        "restartCount": 9,
+        "startedAfterInspectedCompiledFiles": true
+      }
+    ],
+    "paths": [
+      {
+        "relativePath": ".git",
+        "exists": false,
+        "isDirectory": false
+      },
+      {
+        "relativePath": "package.json",
+        "exists": false,
+        "isDirectory": false
+      },
+      {
+        "relativePath": "protocol-layer/package.json",
+        "exists": true,
+        "isDirectory": false
+      },
+      {
+        "relativePath": "armada.ecosystem.config.cjs",
+        "exists": false,
+        "isDirectory": false
+      },
+      {
+        "relativePath": "dist",
+        "exists": false,
+        "isDirectory": false
+      },
+      {
+        "relativePath": "protocol-layer/dist",
+        "exists": true,
+        "isDirectory": true
+      },
+      {
+        "relativePath": "src",
+        "exists": false,
+        "isDirectory": false
+      },
+      {
+        "relativePath": "protocol-layer/src",
+        "exists": true,
+        "isDirectory": true
+      }
+    ],
+    "packageMetadata": [
+      {
+        "path": "protocol-layer/package.json",
+        "name": "@unsea/protocol-layer",
+        "version": "0.1.0",
+        "gitHead": null
+      }
+    ],
+    "artifactFiles": [
+      {
+        "path": "protocol-layer/src/routes/account-deletion-proof.ts",
+        "bytes": 2519,
+        "sha256": "b884ea17c39c0e8dc245867c9f4f52d3985cfd2b7928f22abab84171163f8a6b",
+        "mtimeMs": 1791275106000,
+        "localHeadSourceSha256": "b884ea17c39c0e8dc245867c9f4f52d3985cfd2b7928f22abab84171163f8a6b",
+        "matchesLocalHeadSource": true
+      },
+      {
+        "path": "protocol-layer/src/worker/account-deletion-proof.ts",
+        "bytes": 6595,
+        "sha256": "e99f1b3e84ee721fa7849a0b3167694cbe6580cbdd71c6052d80a6d7364e9951",
+        "mtimeMs": 1791275106000,
+        "localHeadSourceSha256": "e99f1b3e84ee721fa7849a0b3167694cbe6580cbdd71c6052d80a6d7364e9951",
+        "matchesLocalHeadSource": true
+      },
+      {
+        "path": "protocol-layer/src/routes/index.ts",
+        "bytes": 3064,
+        "sha256": "282cfba2e8b68a9ca83381ddacce192a41f6c9bd9ab427f23de29b37a0509349",
+        "mtimeMs": 1791275106000,
+        "localHeadSourceSha256": "282cfba2e8b68a9ca83381ddacce192a41f6c9bd9ab427f23de29b37a0509349",
+        "matchesLocalHeadSource": true
+      }
+    ]
+  },
+  "compiledArtifactInspection": {
+    "observedAtUnixMs": 1791279210619,
+    "artifactFiles": [
+      {
+        "path": "protocol-layer/dist/protocol-layer/src/server.js",
+        "exists": true,
+        "bytes": 31956,
+        "sha256": "51325ba58de2da98c682cff651a4727915ad374f4b9547f670ff6d5343bca385",
+        "mtimeMs": 1791276269274,
+        "localArtifactExists": true,
+        "localSha256": "51325ba58de2da98c682cff651a4727915ad374f4b9547f670ff6d5343bca385",
+        "matchesLocalArtifact": true,
+        "importsAndCallsRegisterAllRoutes": true,
+        "contentCheckBasis": "Read identical local file after remote/local SHA256 match"
+      },
+      {
+        "path": "protocol-layer/dist/protocol-layer/src/routes/index.js",
+        "exists": true,
+        "bytes": 3140,
+        "sha256": "3f4bc8a8f063ab5d9200668b19e13fbad790745b17adcc6fe1961ddb96669606",
+        "mtimeMs": 1791276269264,
+        "importsDeletionProofModule": true,
+        "registersDeletionProofRoutes": true,
+        "localArtifactExists": true,
+        "localSha256": "3f4bc8a8f063ab5d9200668b19e13fbad790745b17adcc6fe1961ddb96669606",
+        "matchesLocalArtifact": true,
+        "contentCheckBasis": "Read identical local file after remote/local SHA256 match"
+      },
+      {
+        "path": "protocol-layer/dist/protocol-layer/src/routes/account-deletion-proof.js",
+        "exists": true,
+        "bytes": 2563,
+        "sha256": "b2672520b23967d6e5d0bc5d1dcc1f33eae28ded34c0282eedd6bf234831feed",
+        "mtimeMs": 1791276269224,
+        "hasDeletionProofPostRoute": true,
+        "usesFreshRegistrationProof": true,
+        "localArtifactExists": true,
+        "localSha256": "b2672520b23967d6e5d0bc5d1dcc1f33eae28ded34c0282eedd6bf234831feed",
+        "matchesLocalArtifact": true,
+        "usesStrictReadGroupMetadata": true,
+        "usesMetadataDeletionProof": true,
+        "contentCheckBasis": "Read identical local file after remote/local SHA256 match"
+      },
+      {
+        "path": "protocol-layer/dist/protocol-layer/src/worker/account-deletion-proof.js",
+        "exists": true,
+        "bytes": 6566,
+        "sha256": "0d45a2a91d8e9d369e42e3f3fd8c432574cb5e31657bb2f160deb10f4f15eab5",
+        "mtimeMs": 1791276268984,
+        "localArtifactExists": true,
+        "localSha256": "0d45a2a91d8e9d369e42e3f3fd8c432574cb5e31657bb2f160deb10f4f15eab5",
+        "matchesLocalArtifact": true,
+        "contentCheckBasis": "Read identical local file after remote/local SHA256 match"
+      },
+      {
+        "path": "protocol-layer/dist/protocol-layer/src/worker/account-manager.js",
+        "exists": true,
+        "bytes": 170046,
+        "sha256": "455e8543be6d075d188601166242b6eca7fed0b8b04922b0a7f5bbf0b4ebd05c",
+        "mtimeMs": 1791276269054,
+        "localArtifactExists": true,
+        "localSha256": "455e8543be6d075d188601166242b6eca7fed0b8b04922b0a7f5bbf0b4ebd05c",
+        "matchesLocalArtifact": true,
+        "contentCheckBasis": "Read identical local file after remote/local SHA256 match"
+      },
+      {
+        "path": "protocol-layer/dist/protocol-layer/src/routes/account-deletion-proof.js.map",
+        "exists": true,
+        "bytes": 2328,
+        "sha256": "c20e6432cb49e5e12060eb0d407c2b7bc202fabc6d90ab449c8933205da6cada",
+        "mtimeMs": 1791276269224,
+        "sourcePaths": [
+          "../../../../src/routes/account-deletion-proof.ts"
+        ],
+        "sourcesContentSha256": [],
+        "localArtifactExists": true,
+        "localSha256": "c20e6432cb49e5e12060eb0d407c2b7bc202fabc6d90ab449c8933205da6cada",
+        "matchesLocalArtifact": true,
+        "contentCheckBasis": "Read identical local file after remote/local SHA256 match"
+      },
+      {
+        "path": "protocol-layer/dist/protocol-layer/src/worker/account-deletion-proof.js.map",
+        "exists": true,
+        "bytes": 6551,
+        "sha256": "8d102ca9ee7829ac991d207b8bbe3678689ec7805ec048e7db55d918d1f285e3",
+        "mtimeMs": 1791276268974,
+        "sourcePaths": [
+          "../../../../src/worker/account-deletion-proof.ts"
+        ],
+        "sourcesContentSha256": [],
+        "localArtifactExists": true,
+        "localSha256": "8d102ca9ee7829ac991d207b8bbe3678689ec7805ec048e7db55d918d1f285e3",
+        "matchesLocalArtifact": true,
+        "contentCheckBasis": "Read identical local file after remote/local SHA256 match"
+      },
+      {
+        "path": "protocol-layer/armada.ecosystem.config.cjs",
+        "exists": false,
+        "localArtifactExists": false
+      }
+    ]
+  },
+  "localHead": "280592f0584ff132b85b9148978c6dba626339e1",
+  "verificationLimits": [
+    "Remote checkout has no .git and package metadata has no gitHead; exact deployed commit cannot be proven.",
+    "Relevant deployed sources match local HEAD; compiled files were compared to existing local artifacts without rebuilding.",
+    "PM2 process path and disk hashes do not alone prove real business acceptance or account query success."
+  ],
+  "observedAtBeijing": "2026-10-06T17:33:30.619000+08:00",
+  "conclusion": {
+    "relevantFeatureSourceMatchesLocalHead": true,
+    "relevantCompiledFilesMatchExistingLocalArtifacts": true,
+    "exactDeployedCommitProven": false,
+    "businessAcceptanceProvenByThisArtifactCheck": false
+  }
+}

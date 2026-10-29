@@ -1,0 +1,8 @@
+2026-09-14T02:54:30.263358+00:00
+
+Warning: Consumer group 'armada-api-group-events-staging' is rebalancing.
+
+GROUP                           TOPIC                           PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG             CONSUMER-ID     HOST            CLIENT-ID
+armada-api-group-events-staging armada.protocol.group.events.v1 0          820598          825191          4593            -               -               -
+armada-api-group-events-staging armada.protocol.group.events.v1 2          1149303         1156368         7065            -               -               -
+armada-api-group-events-staging armada.protocol.group.events.v1 1          1439174         1446409         7235            -               -               -

@@ -1,0 +1,7 @@
+{
+  "observedAt": "2026-10-06T09:33:43.955699+00:00",
+  "databaseSchema": "whatsapp_android_zhuan_perf",
+  "redisPrefix": "android-zhuan-perf:",
+  "normalGroupTopic": "armada.perf.protocol.android.normal-group.commands.v1",
+  "queryResult": "observed_at\tdatabase_schema\n2026-10-06 09:33:42.677\twhatsapp_android_zhuan_perf\ntable_count\n70\n"
+}

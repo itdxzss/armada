@@ -1,0 +1,30 @@
+{
+  "armada-protocol": {
+    "head": "d8c35e1ceca0c041285779826e527a83541fa00f",
+    "git_status": "",
+    "sha256": {
+      "protocol-layer/src/commands/group-profile-executor.ts": "3a49a1a3381afc4f2f59fef034bf236bf5b1ad26556c035b2333b03f7cf14fa7",
+      "protocol-layer/src/commands/group-profile-executor.test.ts": "e8a9e7c6c66069158763e82848c38155f3290b6a7f74398ba2494e524a320287",
+      "protocol-layer/src/routes/groups.ts": "938be1ee42ca12f719f4897f5d13a1549e93d57b50986ca39adab4ad979c61ed",
+      "protocol-layer/src/routes/groups-detail.test.ts": "6c2743028f506abc7aea88e648a4cde599259eaa195bade44f50c189b5536eab",
+      "protocol-layer/src/worker/group-member-link-mode.ts": "36d82202af8e0771140d40f6a164dc1d24aec54691a7c232937bf0ff0b4ca528",
+      "protocol-layer/src/worker/group-member-link-mode.test.ts": "17220356892c54e2ef46f69d590e8f06303e8598b520b0194551549bb9e11b86",
+      "protocol-layer/node_modules/baileys/lib/Socket/groups.js": "8288ae8b28afcbcb7ea60867daf4801b441427239b36460f15e06b6fb8133f76"
+    }
+  },
+  "whatsapp-server-feature-android-zhuan": {
+    "head": "a220f15064f425594702fbad7473dd503e901d1e",
+    "git_status": " M .codegraph/daemon.pid\n",
+    "sha256": {
+      "api/service/group.go": "2540d834d60d3589ed8533277fd8e786c327488541a08dd9d4a8c12f6fb5802f",
+      "api/service/group_profile_metadata_test.go": "37d2c053844f96c54671f0f957a0de9c54b99d28a13b7e0baf8ae65d9339dd8e",
+      "internal/armada/group_profile_sender.go": "48801064dedc3e3faf91e6283a956ff374daf7db5de7633657d1106b180de9e7",
+      "internal/armada/group_profile_sender_test.go": "2ad8f3cc0f0eee85ee90db3e1bbdb05f77f7dc47e4ca56f4b3fa5c3c5670cf91",
+      "internal/armada/group_profile_apply_test.go": "7df5d452994fc0ed3ebc7d1d1b065b5849687fc6b31649354460d4adf63ce4b7",
+      "internal/service/app/group.go": "ed672219a5dd1d52c8c4d1c5aa5bcb1b3691fe2224d3da5399f03e416f6b8ee4",
+      "internal/service/node/node_processor.go": "661a39992167f75e93d8e13e86929cf8984987380674967f041a3a00dad5f76b",
+      "internal/service/node/processor/iq.go": "98bae94364721278d98cb605bc78c012d0a6d19c5532c1b5997e8aa22d1444e5",
+      "internal/service/node/nodes/iq.go": "440628c3412ea008a00701df694d4b264a923cb0bb9efba62741b23fb4bd11a0"
+    }
+  }
+}

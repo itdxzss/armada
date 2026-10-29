@@ -1,0 +1,10 @@
+{
+  "test1": {
+    "sourceSha256": "de32193620a1ef21105a13caa0b933035efd44fe13aa7d4a676a8c527ebfadbb",
+    "runtime": "de32193620a1ef21105a13caa0b933035efd44fe13aa7d4a676a8c527ebfadbb  /home/ec2-user/whatsapp-server-feature-android-zhuan/internal/armada/group_profile_sender.go\nrunning|healthy|0|sha256:2c80e2885e00a7cd94f3143c90be5a6fc8201f7a1dc12e37b2ffcf0927147bfc\ngroup profile account is not online\n"
+  },
+  "perf2": {
+    "sourceSha256": "de32193620a1ef21105a13caa0b933035efd44fe13aa7d4a676a8c527ebfadbb",
+    "runtime": "de32193620a1ef21105a13caa0b933035efd44fe13aa7d4a676a8c527ebfadbb  /home/ec2-user/whatsapp-android-zhuan/internal/armada/group_profile_sender.go\nrunning|healthy|0|sha256:fd902e4b32313247b6b4aaf8c6a56d708d7eaf349d21e03db01e0ed87af3a8e2\ngroup profile account is not online\n"
+  }
+}

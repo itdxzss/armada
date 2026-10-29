@@ -1,0 +1,41 @@
+{
+  "armada": {
+    "commit": "0a900d181e1259440ad6e18289bb90574959e738",
+    "files": {
+      "armada-api/src/main/java/com/armada/task/model/dto/PullTaskDirectLinkCreateDTO.java": "309a9833e010e791ffb38874907556c60663edbba9e0d09105741c7ec6ebe334",
+      "armada-api/src/main/resources/db/migration/V208__pull_task_direct_link.sql": "1538cb0f6defc8424858cd9d5bc7e82d80d865991368e1e53e583c4b727ccda8",
+      "armada-api/src/main/resources/db/migration/V209__pull_task_group_profile_verification.sql": "fefd7ddd5d118c05869314c20429f091c494d8e55a96ac65c8d3b6bba281ec3f",
+      "armada-api/src/main/resources/db/migration/V210__pull_task_interval_range.sql": "7a3b564c20d393199483df8926243680c7040c12914b5c3a8a3e2cd5d1637759"
+    }
+  },
+  "wheel-saas-pure-web": {
+    "commit": "583caf513c8f9075094f6122ac7e39ed578f5228",
+    "files": {
+      "src/views/task/pull-task/components/PullTaskCreateDrawer.vue": "a24ade3a8b8436999502faa82e97ea84d6b8e2976d6a7849b446ca679fb3bd72",
+      "src/views/task/pull-task/components/PullTaskStandardSavedSettings.vue": "2c9a0cde61a55f98405dda2e9d51784f89462f0d7980d9936830a5e6a83ac3b1"
+    }
+  },
+  "armada-protocol": {
+    "commit": "d8c35e1ceca0c041285779826e527a83541fa00f",
+    "files": {
+      "protocol-layer/src/commands/group-profile-executor.ts": "3a49a1a3381afc4f2f59fef034bf236bf5b1ad26556c035b2333b03f7cf14fa7",
+      "protocol-layer/src/rate-limit/reconnect-limiter.ts": "cacf04c56c211c302d18714ffe1312e12da24ae48f0e0691ea3ab891002542c1"
+    }
+  },
+  "whatsapp-server-feature-android-zhuan": {
+    "commit": "a220f15064f425594702fbad7473dd503e901d1e",
+    "files": {
+      "internal/armada/group_profile_apply.go": "61cde04a3dab64955f4c0a5933536ab844fbf9fe6ddaa8527ab22b549313a5fd",
+      "internal/armada/group_profile_sender.go": "48801064dedc3e3faf91e6283a956ff374daf7db5de7633657d1106b180de9e7",
+      "api/service/group.go": "2540d834d60d3589ed8533277fd8e786c327488541a08dd9d4a8c12f6fb5802f"
+    }
+  },
+  "test1_android_scope": [
+    "coordinator",
+    "node1"
+  ],
+  "excluded_athena_nodes": [
+    "node2",
+    "node3"
+  ]
+}

@@ -1,0 +1,16 @@
+  <update id="updateProxySnapshotsInternal">
+    UPDATE account_state state_row
+    JOIN (
+    <foreach collection="rows" item="row" separator=" UNION ALL ">
+      SELECT #{row.accountId} AS account_id,
+             #{row.truthIp} AS truth_ip,
+             #{row.proxyCountry} AS proxy_country,
+             #{row.proxySource} AS proxy_source,
+             #{row.updatedAt} AS updated_at
+    </foreach>
+    ) snapshot ON snapshot.account_id = state_row.account_id
+    SET state_row.truth_ip = snapshot.truth_ip,
+        state_row.proxy_country = snapshot.proxy_country,
+        state_row.proxy_source = snapshot.proxy_source,
+        state_row.updated_at = snapshot.updated_at
+  </update>

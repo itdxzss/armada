@@ -1,0 +1,15 @@
+{
+  "preparedAt": "2026-09-14T03:26:46.141896+00:00",
+  "backupDirectory": "/home/app/armada-deploy/backups/poll10-20260914T032645Z",
+  "containerIdBefore": "690532ff64d5417c7217596a98e9b301527f95eef7acda35b080f9636d376040",
+  "imageId": "sha256:cfc7458151593a095635707925b006fd4d1a729bce3f9a977d5d8c88e082ceaf",
+  "imageReference": "armada-deploy-backend",
+  "jarSha256": "bd12e52f4559f26367dfcdbd946c8c4d869793e6dadef034c02cbe38e1006e1e",
+  "composeSha256After": "399568e50710efacc3ec7db1e46182c029c4f0a797e7daf709494494990236f5",
+  "envSha256After": "f7d34e97d28107db342268c31c7c1d3507c1a0b9dabb01ddf60104d574fc2010",
+  "runtimeChangedKeys": [
+    "SPRING_KAFKA_CONSUMER_MAX_POLL_RECORDS"
+  ],
+  "newMaxPollRecords": 10,
+  "sessionPrefixPreserved": true
+}

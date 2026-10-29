@@ -1,0 +1,27 @@
+observed_utc
+2026-10-06 23:27:01.970
+account_id	task_id	retained_after_task_end_seconds
+2755	64	35611
+2757	65	30839
+account_id	task_id	group_execution_id	role_type	availability_status	released	occupied	unavailable_reason_code
+1038	52	257	1	1	0	0	NULL
+2755	58	268	2	4	1	0	PULLER_REPLACED
+2755	64	303	4	4	1	0	ACCOUNT_DELETED
+2757	58	271	2	1	1	0	NULL
+2757	58	264	2	1	1	0	NULL
+2757	60	290	2	1	1	0	NULL
+2757	61	291	2	4	1	0	PULLER_REPLACED
+2757	65	305	4	1	0	0	NULL
+account_id	bound_proxy_count	active_credential_count	proxy_retain_until
+1038	0	1	NULL
+1736	0	1	NULL
+2755	0	1	NULL
+2757	1	1	NULL
+account_id	n
+1038	4
+1736	4
+2755	2
+2757	9
+total_group_accounts	active_accounts	db_online_accounts	without_creator_reservation
+5	4	4	3
+

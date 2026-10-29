@@ -1,0 +1,8 @@
+{
+  "Replace": {
+    "/Users/daishuaishuai/IdeaProjects/whatsapp-server-feature-android-zhuan/internal/accountdelete/store_test.go": "/private/tmp/creator-deletion-android-tests/internal_accountdelete_store_test.go",
+    "/Users/daishuaishuai/IdeaProjects/whatsapp-server-feature-android-zhuan/internal/service/node/account_delete_gate_test.go": "/private/tmp/creator-deletion-android-tests/internal_service_node_account_delete_gate_test.go",
+    "/Users/daishuaishuai/IdeaProjects/whatsapp-server-feature-android-zhuan/internal/service/node/nodes/account_delete_test.go": "/private/tmp/creator-deletion-android-tests/internal_service_node_nodes_account_delete_test.go",
+    "/Users/daishuaishuai/IdeaProjects/whatsapp-server-feature-android-zhuan/internal/service/app/account_delete_test.go": "/private/tmp/creator-deletion-android-tests/internal_service_app_account_delete_test.go"
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "environment": "perf2",
+  "group_id": 15045,
+  "group_name": "NG验收-perf2-20261003-1230",
+  "authorization": "User confirmed joining this exact group and requested the two neutral comparison messages.",
+  "method": "Direct Android HTTP IMAGE and Template=1 native link preview; not full marketing-task acceptance.",
+  "preflight": {
+    "http_status": 200,
+    "protocol_code": 0,
+    "subject": "NG验收-perf2-20261003-1230",
+    "member_count": 3,
+    "group_matches": true,
+    "sender_present": true,
+    "suspended": false,
+    "terminated": false,
+    "account_id": 999,
+    "observed_epoch": 1791210742.6864612,
+    "observed_utc": "2026-10-05T14:32:22.686466+00:00",
+    "ready": true
+  },
+  "messages": [
+    {
+      "label": "A",
+      "account_id": 999,
+      "group_jid": "120363411384572796@g.us",
+      "image_sha256": "3611b3061d3ff9c93fc18a745165d673a059f319bdcf9208711855136448670f",
+      "image_bytes": 20916,
+      "started_utc": "2026-10-05T14:33:08.532779+00:00",
+      "outer_http_submissions": 1,
+      "http_status": 200,
+      "protocol_code": 0,
+      "message_id": "3C6A1D984CF24AFC9DDC0D8252F8CD2C",
+      "message_type": "image",
+      "response_keys": [
+        "Code",
+        "Data",
+        "Msg"
+      ],
+      "result_message": "Sent successfully",
+      "state": "ACK_CONFIRMED",
+      "completed_epoch": 1791210796.0972395,
+      "completed_utc": "2026-10-05T14:33:16.097244+00:00"
+    },
+    {
+      "label": "B",
+      "account_id": 999,
+      "group_jid": "120363411384572796@g.us",
+      "image_sha256": "3611b3061d3ff9c93fc18a745165d673a059f319bdcf9208711855136448670f",
+      "image_bytes": 20916,
+      "started_utc": "2026-10-05T14:34:11.548752+00:00",
+      "outer_http_submissions": 1,
+      "http_status": 200,
+      "protocol_code": 0,
+      "message_id": "A43789EFC9594CDB8C0847FB3679851E",
+      "message_type": "url",
+      "response_keys": [
+        "Code",
+        "Data",
+        "Msg"
+      ],
+      "result_message": "",
+      "state": "ACK_CONFIRMED",
+      "completed_epoch": 1791210855.6168654,
+      "completed_utc": "2026-10-05T14:34:15.616868+00:00"
+    }
+  ],
+  "recipient_rendering": {
+    "source": "User response in this chat",
+    "result": "A、B 都有图片",
+    "plain_image_visible": true,
+    "native_link_preview_visible": true,
+    "click_target_verified": false
+  },
+  "application_changes": "No source changes, deployment, task mutation, or looping send.",
+  "retry_boundary": "Outer caller submitted each once with remote exclusive markers; existing protocol internals may retry explicit ACK/phash errors once, but not ACK timeouts.",
+  "interpretation": "The confirmed test combination works. Sender, group, image, URL, text and entry path differ from original tasks, so this is not a controlled test of account identity alone."
+}

@@ -1,0 +1,44 @@
+{
+  "environment": "perf2",
+  "authorization": "User requested sending templates 185 and 186 directly by configuring tasks, without further template inspection.",
+  "account_id": 2774,
+  "phone_tail": "***0276",
+  "group_link_id": 17854,
+  "group_jid": "120363431294451288@g.us",
+  "group_name": "EverSerene HarborVillage❤️❤️-6",
+  "entry": "Authenticated browser session, normal /api/marketing-tasks create/start/close. Templates were referenced by ID without edits.",
+  "tasks": [
+    {
+      "id": 319,
+      "template_id": 185,
+      "template_name": "10-5",
+      "target_id": 1922,
+      "sent": 1,
+      "failed": 0,
+      "skipped": 0,
+      "last_sent_at": 1791213968786,
+      "final_status": 8
+    },
+    {
+      "id": 320,
+      "template_id": 186,
+      "template_name": "普通超链",
+      "target_id": 1923,
+      "sent": 1,
+      "failed": 0,
+      "skipped": 0,
+      "last_sent_at": 1791213997221,
+      "final_status": 8
+    }
+  ],
+  "bounds": {
+    "selected_accounts": 1,
+    "selected_groups": 1,
+    "send_per_round": 1,
+    "send_interval_seconds": 3600,
+    "auto_retry": false,
+    "end_window_seconds": 120,
+    "closed_after_single_result": true
+  },
+  "recipient_rendering": "Awaiting user confirmation"
+}

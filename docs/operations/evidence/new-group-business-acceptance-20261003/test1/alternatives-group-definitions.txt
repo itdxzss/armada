@@ -1,0 +1,47 @@
+observed_utc
+2026-10-03 04:10:02.856
+source	id	status	admin_account_group_id	secondary_admin_account_group_id	member_account_group_id
+normal_active_groups	1	PENDING	106	NULL	116
+normal_active_groups	4	RUNNING	106	NULL	108
+normal_active_groups	15	RUNNING	123	NULL	116
+normal_active_groups	16	RUNNING	116	NULL	116
+normal_active_groups	63	RUNNING	133	NULL	130
+normal_active_groups	69	RUNNING	130	NULL	117
+normal_active_groups	72	RUNNING	120	NULL	120
+normal_active_groups	75	RUNNING	130	NULL	130
+normal_active_groups	76	RUNNING	130	NULL	130
+normal_active_groups	77	RUNNING	130	NULL	94
+normal_active_groups	78	RUNNING	122	NULL	122
+normal_active_groups	79	RUNNING	120	NULL	120
+normal_active_groups	86	RUNNING	129	NULL	99
+normal_active_groups	88	RUNNING	130	NULL	119
+normal_active_groups	91	RUNNING	114	NULL	114
+normal_active_groups	92	RUNNING	114	NULL	114
+normal_active_groups	93	RUNNING	114	NULL	114
+normal_active_groups	127	RUNNING	148	149	145
+source	id	status	account_group_ids	selected_account_ids
+join_active_groups	79	DRAFT	[219]	[1755,1719]
+join_active_groups	80	RUNNING	[208]	[1634,1633,1631,1630,1628,1621,1620,1618,1617,1602,1600,1598,1595,1589,1578,1576,913,783,781,774,746,744,717,716,710,708,707,703,692,690,687,686,244]
+source	id	status	admin_account_group_id	secondary_admin_account_group_id	member_account_group_id
+normal_149_groups	118	PARTIAL	148	149	110
+normal_149_groups	120	FAILED	148	149	110
+normal_149_groups	121	FAILED	148	149	148
+normal_149_groups	122	SUCCESS	148	149	110
+normal_149_groups	123	FAILED	148	149	110
+normal_149_groups	124	SUCCESS	148	149	110
+normal_149_groups	125	FAILED	148	149	110
+normal_149_groups	126	SUCCESS	148	149	110
+normal_149_groups	127	RUNNING	148	149	145
+normal_149_groups	128	FAILED	148	149	110
+normal_149_groups	129	FAILED	148	149	110
+normal_149_groups	130	PARTIAL	148	149	110
+normal_149_groups	131	FAILED	148	149	110
+normal_149_groups	132	FAILED	148	149	110
+normal_149_groups	133	FAILED	148	149	110
+normal_149_groups	134	FAILED	148	149	110
+normal_149_groups	135	FAILED	148	149	110
+normal_149_groups	136	FAILED	148	149	110
+normal_149_groups	137	SUCCESS	148	149	145
+normal_149_groups	139	FAILED	159	149	94
+normal_149_groups	141	PARTIAL	155	149	110
+

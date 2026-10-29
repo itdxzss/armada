@@ -1,0 +1,14 @@
+--- a/api/service/group.go
++++ b/api/service/group.go
+@@ -137,6 +137,11 @@
+ 		"MemberAddMode":      groupInfo.MemberAddMode,
+ 		"MemberLinkMode":     groupInfo.MemberLinkMode,
+ 		"GroupJoinState":     groupInfo.GroupJoinState,
++		"Suspended":          groupInfo.Suspended,
++		"Terminated":         groupInfo.Terminated,
++		"IsParentGroup":      groupInfo.IsParentGroup,
++		"ParentGroupID":      groupInfo.ParentGroupID,
++		"IsDefaultSubgroup":  groupInfo.IsDefaultSubgroup,
+ 		"Count":              len(participants),
+ 		"Participants":       participants,
+ 	}

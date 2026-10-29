@@ -1,0 +1,11 @@
+> [check] Armada
+OK [check] Armada
+> [check] Baileys
+OK [check] Baileys
+> [check] Kafka
+OK [check] Kafka
+> [check] Zhuan
+OK [check] Zhuan
+> [check] Cross-component
+OK [check] Cross-component
+OK 只读深度检查通过

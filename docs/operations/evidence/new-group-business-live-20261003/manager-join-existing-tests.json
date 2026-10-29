@@ -1,0 +1,26 @@
+{
+  "commit": "0a900d181e1259440ad6e18289bb90574959e738",
+  "suite": "com.armada.task.scheduler.PullTaskManagerJoinTransactionServiceTest",
+  "tests": 11,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exitCode": 0,
+  "java.version": "17.0.19",
+  "java.home": "/Users/daishuaishuai/Library/Java/JavaVirtualMachines/ms-17.0.19/Contents/Home",
+  "cases": [
+    "confirmedMembershipAdvancesToManagerPullerContactAtomically",
+    "noOnlineManagerMovesOnlyThisExecutionRowToResourceWaiting",
+    "invalidLinkFailsTheExecutionRowWithoutBlamingTheSelectedAccount(String, String)[1]",
+    "invalidLinkFailsTheExecutionRowWithoutBlamingTheSelectedAccount(String, String)[2]",
+    "pendingApprovalPausesOnlyThisGroupWithoutSchedulingAnotherJoin",
+    "submittedAndroidJoinIsRecoveredWithPureInviteCode",
+    "submittedWebJoinIsRecoveredWithFullLinkAndTheSameOperationId",
+    "unknownJoinIsReopenedBeforeMembershipVerification",
+    "offlineManagerParksTheRowInsteadOfHandingAnOfflineAccountToTheJoinProtocol",
+    "selectsExactlyOneManagerAndPersistsSubmittedJoinAction",
+    "managerAlreadyInNewlyCreatedGroupAdvancesWithoutSubmittingJoinCommand"
+  ],
+  "scope": "Existing Mockito class only; no real Mapper, H2, remote database or protocol service. Not included in earlier 135 tests.",
+  "command": "JAVA_HOME=/Users/daishuaishuai/Library/Java/JavaVirtualMachines/ms-17.0.19/Contents/Home mvn -o -f armada-api/pom.xml -Dtest=PullTaskManagerJoinTransactionServiceTest -DargLine='-javaagent:/Users/daishuaishuai/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.19/byte-buddy-agent-1.14.19.jar -Djava.awt.headless=true' test"
+}

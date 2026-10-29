@@ -1,0 +1,1 @@
+INSERT INTO wa_group_participant(tenant_id,group_id,pn_jid,lid_jid,phone,created_at,updated_at) VALUES(1,20,NULL,'213@lid','10001',1,1) ON DUPLICATE KEY UPDATE lid_jid=COALESCE(lid_jid,VALUES(lid_jid));

@@ -1,0 +1,37 @@
+observed_utc	db_schema
+2026-10-03 04:36:32.722	armada_perf
+version	description	installed_on	success
+209	pull task group profile verification	2026-10-02 23:43:39	1
+210	pull task interval range	2026-10-02 23:43:39	1
+id	tenant_id	owner_user_id	account_group_id	phone_tail	protocol_id	deleted_at	account_state	login_state	risk_status	risk_end_time	cooldown_until	mute_status	pulling_restriction_until	restriction_reason_code	state_source	last_state_sync_time	updated_at
+821	1	NULL	664	7358	ANDROID	NULL	2	1	NULL	NULL	NULL	NULL	NULL	NULL	STATE_CHANGED	1791001389363	1791001390384
+999	1	NULL	658	2815	ANDROID	NULL	2	1	NULL	NULL	NULL	NULL	NULL	NULL	STATE_CHANGED	1791001846426	1791001848736
+1038	1	NULL	659	4355	ANDROID	NULL	2	1	NULL	NULL	NULL	NULL	NULL	NULL	STATE_CHANGED	1791002189910	1791002193067
+id	tenant_id	owner_user_id	name	remark	marketing_occupancy_type	marketing_occupancy_task_id	deleted_at
+658	1	NULL	协议测试9-30-1	NULL	NULL	NULL	NULL
+659	1	NULL	协议测试9-30-2	NULL	NULL	NULL	NULL
+664	1	NULL	9-30第二批-1	NULL	NULL	NULL	NULL
+observed_utc
+2026-10-03 04:36:34.875
+account_id	task_id	task_status	group_execution_id	role_type	availability_status	occupied_at	released_at
+821	43	COMPLETED	210	3	1	NULL	NULL
+id	status	creation_mode	creator_group_id	manager_group_id	puller_group_id	station_group_id
+52	WAIT_START	NEW_GROUP	658	659	664	NULL
+observed_utc
+2026-10-03 04:36:38.471
+id	ownership	cred_format
+821	1	1
+999	1	1
+1038	1	1
+observed_utc
+2026-10-03 04:36:42.163
+source	id	status	account_group_id	deleted_at
+marketing_task_group_reference	306	8	658	NULL
+marketing_task_group_reference	307	8	664	NULL
+id	creation_mode	status	created_at	group_count
+52	NEW_GROUP	WAIT_START	1791001922836	1
+51	DIRECT_LINK	COMPLETED	1790489317719	5
+50	DIRECT_LINK	COMPLETED	1790489183079	1
+49	DIRECT_LINK	ENDED	1789817873016	5
+48	DIRECT_LINK	ENDED	1789813137056	5
+

@@ -1,0 +1,10 @@
+SELECT 'REMAINING_FAILURE_BY_ACCOUNT' section;
+SELECT r.account_id,r.fail_code,COUNT(*) n,s.account_state,s.login_state,s.mute_status,s.restriction_reason_code,s.block_error_code,s.block_reason FROM hyperlink_task_recipient r LEFT JOIN account_state s ON s.tenant_id=r.tenant_id AND s.account_id=r.account_id WHERE r.tenant_id=1 AND r.hyperlink_task_id=11 AND r.send_status=6 GROUP BY r.account_id,r.fail_code,s.account_state,s.login_state,s.mute_status,s.restriction_reason_code,s.block_error_code,s.block_reason ORDER BY r.fail_code,n DESC;
+SELECT 'UNKNOWN_COMMANDS' section;
+SELECT id,command_id,account_id,submitted_at,failed_at FROM hyperlink_task_recipient WHERE tenant_id=1 AND hyperlink_task_id=11 AND fail_code='SEND_RESULT_UNKNOWN';
+SELECT 'POOL' section;
+SELECT data_package_id,pool_status,COUNT(*) n FROM data_package_phone WHERE tenant_id=1 AND data_package_id IN(15,17) GROUP BY data_package_id,pool_status;
+SELECT 'PACKAGE_STATS' section;
+SELECT data_package_id,generation,unused_count,claimed_count,sent_count,delivered_count,retryable_failed_count,unregistered_count FROM data_package_stat WHERE tenant_id=1 AND data_package_id IN(15,17);
+SELECT 'PROTOCOLS' section;
+SELECT hyperlink_task_id,protocol_id,protocol_backend,COUNT(*) n FROM hyperlink_task_recipient WHERE tenant_id=1 AND hyperlink_task_id IN(10,11) GROUP BY hyperlink_task_id,protocol_id,protocol_backend;

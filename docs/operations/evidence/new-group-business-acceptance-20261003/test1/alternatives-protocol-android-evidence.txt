@@ -1,0 +1,30 @@
+observed_utc
+2026-10-03 04:11:04.911
+id	account_group_id	phone_tail	protocol_id	account_state	login_state	risk_status	risk_end_time	cooldown_until	pulling_restriction_until	mute_status	platform_message_restriction_active	platform_message_restriction_until	fallback_message_restriction_until	restriction_reason_code	state_source	last_state_sync_time
+1572	149	2185	ANDROID	2	1	NULL	NULL	NULL	NULL	NULL	0	NULL	NULL	NULL	STATE_CHANGED	1791000286507
+1574	149	8336	ANDROID	2	1	NULL	NULL	NULL	NULL	NULL	0	NULL	NULL	NULL	STATE_CHANGED	1791000292827
+1792	220	7120	ANDROID	2	1	NULL	NULL	NULL	NULL	NULL	0	NULL	NULL	NULL	STATE_CHANGED	1791000500086
+1795	220	5205	ANDROID	2	1	NULL	NULL	NULL	NULL	NULL	0	NULL	NULL	NULL	STATE_CHANGED	1791000283403
+
+{"id": 1572, "phone_tail": "2185", "protocol": "ANDROID", "checked_at": "2026-10-03T04:11:05.137398+00:00", "http": 200, "Code": 0, "Msg": "", "response_keys": ["Code", "Data", "Msg"], "data_type": "str", "Data": "账号 [REDACTED] 在线"}
+{"id": 1574, "phone_tail": "8336", "protocol": "ANDROID", "checked_at": "2026-10-03T04:11:05.150217+00:00", "http": 200, "Code": 0, "Msg": "", "response_keys": ["Code", "Data", "Msg"], "data_type": "str", "Data": "账号 [REDACTED] 在线"}
+{"id": 1792, "phone_tail": "7120", "protocol": "ANDROID", "checked_at": "2026-10-03T04:11:05.156068+00:00", "http": 200, "Code": 0, "Msg": "", "response_keys": ["Code", "Data", "Msg"], "data_type": "str", "Data": "账号 [REDACTED] 在线"}
+{"id": 1795, "phone_tail": "5205", "protocol": "ANDROID", "checked_at": "2026-10-03T04:11:05.161207+00:00", "http": 200, "Code": 0, "Msg": "", "response_keys": ["Code", "Data", "Msg"], "data_type": "str", "Data": "账号 [REDACTED] 在线"}
+source	secondary_admin_account_id	anchor_member_account_id	task_id	participant_status	promotion_status	task_status
+normal_secondary_149	888	1504	127	PENDING	PENDING	RUNNING
+normal_secondary_149	892	1527	127	PENDING	PENDING	RUNNING
+normal_secondary_149	892	1527	127	PENDING	PENDING	RUNNING
+normal_secondary_149	1568	1492	127	PENDING	PENDING	RUNNING
+normal_secondary_149	1568	1492	127	PENDING	PENDING	RUNNING
+normal_secondary_149	1569	1485	127	PENDING	PENDING	RUNNING
+normal_secondary_149	1569	1485	127	PENDING	PENDING	RUNNING
+normal_secondary_149	1570	1530	127	PENDING	PENDING	RUNNING
+normal_secondary_149	1570	1530	127	PENDING	PENDING	RUNNING
+normal_secondary_149	1571	1500	127	PENDING	PENDING	RUNNING
+normal_secondary_149	1571	1500	127	PENDING	PENDING	RUNNING
+normal_secondary_149	1572	1531	127	PENDING	PENDING	RUNNING
+normal_secondary_149	1572	1531	127	PENDING	PENDING	RUNNING
+normal_secondary_149	1573	1456	127	PENDING	PENDING	RUNNING
+normal_secondary_149	1573	1456	127	PENDING	PENDING	RUNNING
+normal_secondary_149	1574	1451	127	PENDING	PENDING	RUNNING
+

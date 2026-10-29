@@ -1,0 +1,40 @@
+{
+  "environment": "perf2",
+  "inspectionMode": "read-only; remote allowlist filtering; no send, restart, configuration change, or raw log export",
+  "host": "3.111.245.182",
+  "container": "whatsapp-android-zhuan",
+  "status": "running",
+  "startedAt": "2026-10-05T10:38:38.763717752Z",
+  "image": "whatsapp-server-feature-android-zhuan:perf",
+  "imageId": "sha256:fd902e4b32313247b6b4aaf8c6a56d708d7eaf349d21e03db01e0ed87af3a8e2",
+  "binaryPath": "/app/whatsapp-server",
+  "binarySha256": "33a1428a4078845e752a15366909974cddd12ef2b712549388cbab14b576ca74",
+  "binaryContainsNativePreviewBuilderSymbol": true,
+  "matchesFullReleaseAndroidImageId": true,
+  "releaseEvidence": "/Users/daishuaishuai/IdeaProjects/armada/docs/operations/evidence/full-release-test1-perf2-20261005/android-runtime.json",
+  "sourceSha256MatchesCurrentLocal": {
+    "internal/service/node/message_payload.go": "e45e0b9cd159efc3010d2690f1906260fb0dc4e9105e2687db2107f22ed10356",
+    "internal/service/node/node_processor.go": "661a39992167f75e93d8e13e86929cf8984987380674967f041a3a00dad5f76b",
+    "internal/armada/message_sender.go": "144e5e734232962279799751e04f0a5ee7168d264fa35d40b55415f9c551c696",
+    "internal/service/media/MediaCipher.go": "b1e607b3b2dc2e2f50750a177211a841e39362c6dea983860074b97f13e55901"
+  },
+  "logWindowUTC": ["2026-10-05T13:12:00Z", "2026-10-05T13:22:30Z"],
+  "selectedServerAcks": [
+    {"messageId":"933E17B4210445E3A8576A27E4355FCB","timestampUTC":"2026-10-05T13:14:42.825Z","event":"WhatsApp message ACK accepted","tracked":true},
+    {"messageId":"5AB01CDB1F404F338AFF299F77051116","timestampUTC":"2026-10-05T13:14:47.383Z","event":"WhatsApp message ACK accepted","tracked":true},
+    {"messageId":"4E26AF6C9D8A4B70A56813478A25EBB6","timestampUTC":"2026-10-05T13:14:49.371Z","event":"WhatsApp message ACK accepted","tracked":true},
+    {"messageId":"A123BF741CF74B1FB97AE27ED119F90D","timestampUTC":"2026-10-05T13:20:25.548Z","event":"WhatsApp message ACK accepted","tracked":true},
+    {"messageId":"7F0328673DC44845A5DDC6728D143AE1","timestampUTC":"2026-10-05T13:20:38.179Z","event":"WhatsApp message ACK accepted","tracked":true}
+  ],
+  "entireWindowAckAcceptedCount": 13,
+  "entireWindowAckTimeoutCountNotCorrelatedToSelectedIds": 1,
+  "thumbnailUploadCompletedLogCountInWindow": 0,
+  "imageAssetLoadedLogCountInWindow": 0,
+  "imageAssetLoadFailedLogCountInWindow": 0,
+  "imageLogLimit": "Those image events are Debug-level in source. Absence of logs does not establish absence of upload or image bytes.",
+  "trafficSamplesFileExists": true,
+  "persistedLinkCardTrafficSamplesInWindow": 0,
+  "trafficLimit": "Persisted traffic contains counts and pseudonymous tokens, not outgoing plaintext, JPEG, media keys, or direct paths. No mediaPayloadBytes evidence for these messages was available in the inspected persisted samples.",
+  "notEstablished": ["actual per-message uploaded JPEG length and dimensions", "actual per-message thumbnailDirectPath presence", "actual delivered recipient protobuf fields", "successful recipient image display", "root cause of missing preview"],
+  "approvalHandling": "A proposal to stream raw logs to a local filter was rejected before execution. The approved replacement filters on the remote host and returns only explicit metadata fields. No blocked operation remains pending."
+}

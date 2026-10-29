@@ -1,0 +1,14 @@
+observed_utc
+2026-10-03 04:05:45.658
+source	id	status	account_group_id	deleted_at
+marketing_task_group_reference	306	8	658	NULL
+marketing_task_group_reference	307	8	664	NULL
+id	creation_mode	status	created_at	group_count
+51	DIRECT_LINK	COMPLETED	1790489317719	5
+50	DIRECT_LINK	COMPLETED	1790489183079	1
+49	DIRECT_LINK	ENDED	1789817873016	5
+48	DIRECT_LINK	ENDED	1789813137056	5
+47	PASTED_LINK	COMPLETED	1789804744517	5
+new_group_tasks_created_since_preflight
+0
+

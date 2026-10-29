@@ -1,0 +1,17 @@
+observed_utc
+2026-10-03 04:01:34.734
+id	ownership	cred_format
+821	1	1
+999	1	1
+1038	1	1
+id	tenant_id	package_name	remark	phone_count
+20	1	9-18超链测试	NULL	3999
+18	1	9-18测试小虎	NULL	6
+16	1	第四次测试	NULL	6
+14	1	第三次测试17号	NULL	6
+13	1	9-17雷号测试第二次	NULL	6
+12	1	9-17雷号测试	NULL	6
+11	1	二次测试卡片模版	NULL	6
+10	1	测试号码	NULL	6
+7	1	PERF2_LIVE_4_ACCOUNTS_[REDACTED]	部署验收：仅第二套自有账号2176、2173、1786、1787，共4个收件号码，每号最多1条。	4
+

@@ -1,0 +1,30 @@
+{
+  "observedAt": "2026-10-06T09:32:46.400174+00:00",
+  "sha256": "8a2db87c4ef645a2d43b79b842d68163d8dbb4ae76a32d8a0127eb33e9934fff",
+  "buildInfo": [
+    "path\tws-go/cmd/server",
+    "mod\tws-go\t(devel)",
+    "build\t-buildmode=exe",
+    "build\t-compiler=gc",
+    "build\tDefaultGODEBUG=cryptocustomrand=1,tlssecpmlkem=0,urlstrictcolons=0",
+    "build\tCGO_ENABLED=1",
+    "build\tCGO_CFLAGS=",
+    "build\tCGO_CPPFLAGS=",
+    "build\tCGO_CXXFLAGS=",
+    "build\tCGO_LDFLAGS=",
+    "build\tGOARCH=amd64",
+    "build\tGOOS=linux",
+    "build\tGOAMD64=v1"
+  ],
+  "symbolPresent": {
+    "ws-go/api/service.GetAccountDeletionProofService": true,
+    "ws-go/api/service.DeleteAccountService": true,
+    "ws-go/internal/service/app.(*WaApp).BeginAccountDeletion": true,
+    "ws-go/internal/service/app.(*WaApp).SendAccountDeletion": true,
+    "WA_ACCOUNT_DELETE_TASK_SECRET": true,
+    "/ws/v1/account/deletion-proof": true
+  },
+  "goVersion": "go1.26.5",
+  "exactGitCommitProven": false,
+  "note": "Runtime binary lacks vcs.revision build metadata; symbol presence establishes deployed feature markers, not whole-source commit identity."
+}

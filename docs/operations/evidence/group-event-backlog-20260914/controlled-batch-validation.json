@@ -1,0 +1,906 @@
+{
+  "date": "2026-09-14",
+  "environment": "local ephemeral MySQL 8.4.8 containers and H2; no shared DB or deployment",
+  "scope": "controlled-account member persistence only; no event dedupe, Kafka config or lock removal",
+  "totals": {
+    "tests": 88,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "suites": [
+    {
+      "name": "AccountGroupControlledBatchMapperH2Test",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "AccountGroupCurrentSnapshotMapperH2Test",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "ProtocolGroupParticipantChangedSinkAdapterTest",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "ProtocolGroupProfileReportedConsumerTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "AccountGroupControlledBatchPersistenceTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "GroupProfileReportedSinkAdapterTest",
+      "tests": 22,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "GroupParticipantObservationServiceImplTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "AccountGroupCurrentSnapshotPersistenceImplTest",
+      "tests": 17,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "AccountGroupControlledBatchMySqlTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "AccountGroupCurrentSnapshotPersistenceMySqlTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "jdbc_statements": {
+    "batch_one_account": 8,
+    "batch_fifteen_accounts": 8,
+    "old_fifteen_individual_calls": 120
+  },
+  "plans": {
+    "before_ascii_fix": {
+      "selectControlledExistingAfterGroupLock": {
+        "query_block": {
+          "select_id": 1,
+          "cost_info": {
+            "query_cost": "4753.94"
+          },
+          "ordering_operation": {
+            "using_filesort": true,
+            "nested_loop": [
+              {
+                "table": {
+                  "table_name": "g",
+                  "access_type": "const",
+                  "possible_keys": [
+                    "PRIMARY",
+                    "uq_wa_group_jid",
+                    "idx_wa_group_list",
+                    "idx_wa_group_folder",
+                    "idx_wa_group_origin"
+                  ],
+                  "key": "PRIMARY",
+                  "used_key_parts": [
+                    "id"
+                  ],
+                  "key_length": "8",
+                  "ref": [
+                    "const"
+                  ],
+                  "rows_examined_per_scan": 1,
+                  "rows_produced_per_join": 1,
+                  "filtered": "100.00",
+                  "cost_info": {
+                    "read_cost": "0.00",
+                    "eval_cost": "0.10",
+                    "prefix_cost": "0.00",
+                    "data_read_per_join": "5K"
+                  },
+                  "used_columns": [
+                    "id",
+                    "tenant_id",
+                    "group_jid",
+                    "deleted_at"
+                  ]
+                }
+              },
+              {
+                "table": {
+                  "table_name": "incoming",
+                  "access_type": "ALL",
+                  "rows_examined_per_scan": 15,
+                  "rows_produced_per_join": 15,
+                  "filtered": "100.00",
+                  "cost_info": {
+                    "read_cost": "2.69",
+                    "eval_cost": "1.50",
+                    "prefix_cost": "4.19",
+                    "data_read_per_join": "7K"
+                  },
+                  "used_columns": [
+                    "account_id",
+                    "pn_jid"
+                  ],
+                  "materialized_from_subquery": {
+                    "using_temporary_table": true,
+                    "dependent": false,
+                    "cacheable": true,
+                    "query_block": {
+                      "union_result": {
+                        "using_temporary_table": false,
+                        "query_specifications": [
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 2,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 3,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 4,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 5,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 6,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 7,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 8,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 9,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 10,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 11,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 12,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 13,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 14,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 15,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 16,
+                              "message": "No tables used"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "table": {
+                  "table_name": "p",
+                  "access_type": "ref",
+                  "possible_keys": [
+                    "uq_wa_group_participant_pn",
+                    "uq_wa_group_participant_lid",
+                    "uq_wa_group_participant_phone",
+                    "idx_wa_group_participant_list",
+                    "idx_wa_group_participant_country",
+                    "idx_wa_group_participant_exit"
+                  ],
+                  "key": "uq_wa_group_participant_pn",
+                  "used_key_parts": [
+                    "tenant_id",
+                    "group_id"
+                  ],
+                  "key_length": "16",
+                  "ref": [
+                    "const",
+                    "const"
+                  ],
+                  "rows_examined_per_scan": 1507,
+                  "rows_produced_per_join": 22605,
+                  "filtered": "100.00",
+                  "index_condition": "<if>(is_not_null_compl(p), (`armada_controlled_batch`.`p`.`pn_jid` = `incoming`.`pn_jid`), true)",
+                  "cost_info": {
+                    "read_cost": "225.00",
+                    "eval_cost": "2260.50",
+                    "prefix_cost": "2489.69",
+                    "data_read_per_join": "37M"
+                  },
+                  "used_columns": [
+                    "id",
+                    "tenant_id",
+                    "group_id",
+                    "pn_jid",
+                    "presence_status",
+                    "presence_source",
+                    "presence_observed_at"
+                  ]
+                }
+              },
+              {
+                "table": {
+                  "table_name": "b",
+                  "access_type": "eq_ref",
+                  "possible_keys": [
+                    "uq_wa_account_group_binding",
+                    "idx_wa_binding_group_participant",
+                    "idx_wa_binding_account_active_since",
+                    "idx_wa_binding_group_baseline"
+                  ],
+                  "key": "uq_wa_account_group_binding",
+                  "used_key_parts": [
+                    "tenant_id",
+                    "account_id",
+                    "group_id"
+                  ],
+                  "key_length": "24",
+                  "ref": [
+                    "const",
+                    "incoming.account_id",
+                    "const"
+                  ],
+                  "rows_examined_per_scan": 1,
+                  "rows_produced_per_join": 22605,
+                  "filtered": "100.00",
+                  "index_condition": "<if>(is_not_null_compl(b), (`armada_controlled_batch`.`b`.`account_id` = `incoming`.`account_id`), true)",
+                  "cost_info": {
+                    "read_cost": "3.75",
+                    "eval_cost": "2260.50",
+                    "prefix_cost": "4753.94",
+                    "data_read_per_join": "23M"
+                  },
+                  "used_columns": [
+                    "id",
+                    "tenant_id",
+                    "account_id",
+                    "group_id",
+                    "was_in_initial_baseline",
+                    "membership_active_since_at",
+                    "first_post_control_observed_at"
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "final": {
+      "selectControlledExistingAfterGroupLock": {
+        "query_block": {
+          "select_id": 1,
+          "cost_info": {
+            "query_cost": "14.69"
+          },
+          "ordering_operation": {
+            "using_filesort": true,
+            "nested_loop": [
+              {
+                "table": {
+                  "table_name": "g",
+                  "access_type": "const",
+                  "possible_keys": [
+                    "PRIMARY",
+                    "uq_wa_group_jid",
+                    "idx_wa_group_list",
+                    "idx_wa_group_folder",
+                    "idx_wa_group_origin"
+                  ],
+                  "key": "PRIMARY",
+                  "used_key_parts": [
+                    "id"
+                  ],
+                  "key_length": "8",
+                  "ref": [
+                    "const"
+                  ],
+                  "rows_examined_per_scan": 1,
+                  "rows_produced_per_join": 1,
+                  "filtered": "100.00",
+                  "cost_info": {
+                    "read_cost": "0.00",
+                    "eval_cost": "0.10",
+                    "prefix_cost": "0.00",
+                    "data_read_per_join": "5K"
+                  },
+                  "used_columns": [
+                    "id",
+                    "tenant_id",
+                    "group_jid",
+                    "deleted_at"
+                  ]
+                }
+              },
+              {
+                "table": {
+                  "table_name": "incoming",
+                  "access_type": "ALL",
+                  "rows_examined_per_scan": 15,
+                  "rows_produced_per_join": 15,
+                  "filtered": "100.00",
+                  "cost_info": {
+                    "read_cost": "2.69",
+                    "eval_cost": "1.50",
+                    "prefix_cost": "4.19",
+                    "data_read_per_join": "3K"
+                  },
+                  "used_columns": [
+                    "account_id",
+                    "pn_jid"
+                  ],
+                  "materialized_from_subquery": {
+                    "using_temporary_table": true,
+                    "dependent": false,
+                    "cacheable": true,
+                    "query_block": {
+                      "union_result": {
+                        "using_temporary_table": false,
+                        "query_specifications": [
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 2,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 3,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 4,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 5,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 6,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 7,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 8,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 9,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 10,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 11,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 12,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 13,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 14,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 15,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 16,
+                              "message": "No tables used"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "table": {
+                  "table_name": "p",
+                  "access_type": "eq_ref",
+                  "possible_keys": [
+                    "uq_wa_group_participant_pn",
+                    "uq_wa_group_participant_lid",
+                    "uq_wa_group_participant_phone",
+                    "idx_wa_group_participant_list",
+                    "idx_wa_group_participant_country",
+                    "idx_wa_group_participant_exit"
+                  ],
+                  "key": "uq_wa_group_participant_pn",
+                  "used_key_parts": [
+                    "tenant_id",
+                    "group_id",
+                    "pn_jid"
+                  ],
+                  "key_length": "210",
+                  "ref": [
+                    "const",
+                    "const",
+                    "incoming.pn_jid"
+                  ],
+                  "rows_examined_per_scan": 1,
+                  "rows_produced_per_join": 15,
+                  "filtered": "100.00",
+                  "cost_info": {
+                    "read_cost": "3.75",
+                    "eval_cost": "1.50",
+                    "prefix_cost": "9.44",
+                    "data_read_per_join": "25K"
+                  },
+                  "used_columns": [
+                    "id",
+                    "tenant_id",
+                    "group_id",
+                    "pn_jid",
+                    "presence_status",
+                    "presence_source",
+                    "presence_observed_at"
+                  ]
+                }
+              },
+              {
+                "table": {
+                  "table_name": "b",
+                  "access_type": "eq_ref",
+                  "possible_keys": [
+                    "uq_wa_account_group_binding",
+                    "idx_wa_binding_group_participant",
+                    "idx_wa_binding_account_active_since",
+                    "idx_wa_binding_group_baseline"
+                  ],
+                  "key": "uq_wa_account_group_binding",
+                  "used_key_parts": [
+                    "tenant_id",
+                    "account_id",
+                    "group_id"
+                  ],
+                  "key_length": "24",
+                  "ref": [
+                    "const",
+                    "incoming.account_id",
+                    "const"
+                  ],
+                  "rows_examined_per_scan": 1,
+                  "rows_produced_per_join": 15,
+                  "filtered": "100.00",
+                  "index_condition": "<if>(is_not_null_compl(b), (`armada_controlled_batch`.`b`.`account_id` = `incoming`.`account_id`), true)",
+                  "cost_info": {
+                    "read_cost": "3.75",
+                    "eval_cost": "1.50",
+                    "prefix_cost": "14.69",
+                    "data_read_per_join": "16K"
+                  },
+                  "used_columns": [
+                    "id",
+                    "tenant_id",
+                    "account_id",
+                    "group_id",
+                    "was_in_initial_baseline",
+                    "membership_active_since_at",
+                    "first_post_control_observed_at"
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      },
+      "upsertControlledBindings": {
+        "query_block": {
+          "select_id": 1,
+          "cost_info": {
+            "query_cost": "24.44"
+          },
+          "ordering_operation": {
+            "using_filesort": true,
+            "cost_info": {
+              "sort_cost": "15.00"
+            },
+            "nested_loop": [
+              {
+                "table": {
+                  "table_name": "incoming",
+                  "access_type": "ALL",
+                  "rows_examined_per_scan": 15,
+                  "rows_produced_per_join": 15,
+                  "filtered": "100.00",
+                  "cost_info": {
+                    "read_cost": "2.69",
+                    "eval_cost": "1.50",
+                    "prefix_cost": "4.19",
+                    "data_read_per_join": "22K"
+                  },
+                  "used_columns": [
+                    "account_id",
+                    "group_id",
+                    "pn_jid",
+                    "presence_status",
+                    "presence_source",
+                    "observed_at",
+                    "was_in_initial_baseline",
+                    "baseline_subject_snapshot",
+                    "membership_active_since_at",
+                    "first_post_control_observed_at",
+                    "now_at"
+                  ],
+                  "attached_condition": "(`incoming`.`pn_jid` is not null)",
+                  "materialized_from_subquery": {
+                    "using_temporary_table": true,
+                    "dependent": false,
+                    "cacheable": true,
+                    "query_block": {
+                      "union_result": {
+                        "using_temporary_table": false,
+                        "query_specifications": [
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 2,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 3,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 4,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 5,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 6,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 7,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 8,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 9,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 10,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 11,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 12,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 13,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 14,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 15,
+                              "message": "No tables used"
+                            }
+                          },
+                          {
+                            "dependent": false,
+                            "cacheable": true,
+                            "query_block": {
+                              "select_id": 16,
+                              "message": "No tables used"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "table": {
+                  "table_name": "participant",
+                  "access_type": "eq_ref",
+                  "possible_keys": [
+                    "uq_wa_group_participant_pn",
+                    "uq_wa_group_participant_lid",
+                    "uq_wa_group_participant_phone",
+                    "idx_wa_group_participant_list",
+                    "idx_wa_group_participant_country",
+                    "idx_wa_group_participant_exit"
+                  ],
+                  "key": "uq_wa_group_participant_pn",
+                  "used_key_parts": [
+                    "tenant_id",
+                    "group_id",
+                    "pn_jid"
+                  ],
+                  "key_length": "210",
+                  "ref": [
+                    "const",
+                    "incoming.group_id",
+                    "incoming.pn_jid"
+                  ],
+                  "rows_examined_per_scan": 1,
+                  "rows_produced_per_join": 15,
+                  "filtered": "100.00",
+                  "index_condition": "(`armada_controlled_batch`.`participant`.`group_id` = `incoming`.`group_id`)",
+                  "cost_info": {
+                    "read_cost": "3.75",
+                    "eval_cost": "1.50",
+                    "prefix_cost": "9.44",
+                    "data_read_per_join": "25K"
+                  },
+                  "used_columns": [
+                    "id",
+                    "tenant_id",
+                    "group_id",
+                    "pn_jid",
+                    "presence_status",
+                    "presence_source",
+                    "presence_observed_at"
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "validation_runs": [
+    {
+      "log": "/tmp/group241-diag/batch-validation-final.log",
+      "exit_code": 1,
+      "detail": "88 cases, binding EXPLAIN alone failed on tiny fixture; all other cases passed after production ASCII fix"
+    },
+    {
+      "log": "/tmp/group241-diag/batch-mysql-final.log",
+      "exit_code": 0,
+      "detail": "4 MySQL cases passed after increasing plan fixture to 3015 bindings; no production change since prior run"
+    }
+  ],
+  "limits": [
+    "JDBC reduction is for the controlled-account persistence portion, not entire event handling or remote latency",
+    "H2 fixture strips unsupported MySQL ASCII/COLLATE modifiers; original XML and real schema/indexes tested on MySQL",
+    "No online throughput acceptance; post-deploy concurrent group-creation test remains"
+  ]
+}

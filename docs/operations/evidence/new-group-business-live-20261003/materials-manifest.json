@@ -1,0 +1,74 @@
+[
+  {
+    "environment": "test1",
+    "source_name": "A8-XA748.txt",
+    "source_sha256": "2ff9c55d8b6459a492784805b15bfd3176795f5bc2f1a4ba3ba929a9bf83f9f6",
+    "source_count": 201,
+    "selected_rows": "1-6",
+    "selected_count": 6,
+    "upload_file": "/private/tmp/armada-newgroup-live-20261003/materials/A8-XA748-test1-accept-6.txt",
+    "sample_sha256": "faee32976562c1c4299e54addd451228200ff651729e9e1df3e293ce7209de1b",
+    "recipients": [
+      {
+        "ordinal": 1,
+        "phone_tail": "4688"
+      },
+      {
+        "ordinal": 2,
+        "phone_tail": "0110"
+      },
+      {
+        "ordinal": 3,
+        "phone_tail": "9001"
+      },
+      {
+        "ordinal": 4,
+        "phone_tail": "3953"
+      },
+      {
+        "ordinal": 5,
+        "phone_tail": "1967"
+      },
+      {
+        "ordinal": 6,
+        "phone_tail": "4323"
+      }
+    ]
+  },
+  {
+    "environment": "perf2",
+    "source_name": "A8-XA747.txt",
+    "source_sha256": "012b90e782f9580a3ddc810e9577a299be0dc8071372c2aefc030886691f2a12",
+    "source_count": 201,
+    "selected_rows": "1-6",
+    "selected_count": 6,
+    "upload_file": "/private/tmp/armada-newgroup-live-20261003/materials/A8-XA747-perf2-accept-6.txt",
+    "sample_sha256": "2c804975c1c555c3ba6a2dbdac34a3704e13aa939f23898ba91ecf3ca6d7de66",
+    "recipients": [
+      {
+        "ordinal": 1,
+        "phone_tail": "4688"
+      },
+      {
+        "ordinal": 2,
+        "phone_tail": "5126"
+      },
+      {
+        "ordinal": 3,
+        "phone_tail": "2275"
+      },
+      {
+        "ordinal": 4,
+        "phone_tail": "7986"
+      },
+      {
+        "ordinal": 5,
+        "phone_tail": "8145"
+      },
+      {
+        "ordinal": 6,
+        "phone_tail": "1015"
+      }
+    ]
+  }
+]

@@ -1,0 +1,33 @@
+▶ account batch operation
+  ✔ uses selected IDs before applied filters (1.066958ms)
+  ✔ describes a selected online operation with skipped accounts (16.033291ms)
+  ✔ describes a filtered unselected online operation (0.153125ms)
+  ✔ shows deregistered skip counts for selected, filtered and all-account operations (0.337542ms)
+  ✔ shows deregistered skips in the final batch result (0.519084ms)
+  ✔ describes an unfiltered offline operation as all accounts (0.105333ms)
+  ✔ summarizes accepted skipped and failed command counts (0.1705ms)
+  ✔ reports fully accepted ONLINE commands without claiming final account state (0.271917ms)
+  ✔ reports fully rejected ONLINE commands as an error with the backend reason (0.660916ms)
+  ✔ warns when one account is rejected while the remaining ONLINE commands are accepted (0.38875ms)
+  ✔ reports fully accepted OFFLINE commands without claiming final account state (1.158ms)
+  ✔ reports fully rejected OFFLINE commands as an error with the backend reason (0.23525ms)
+  ✔ warns when one account is rejected while the remaining OFFLINE commands are accepted (0.1085ms)
+  ✔ reports a rejected single-account offline request as an error (0.203167ms)
+  ✔ warns when accounts are skipped, including when no command is accepted (0.281ms)
+  ✔ does not report an empty request as a success (0.109958ms)
+  ✔ redacts phone-like numbers and limits duplicated backend error details (0.154875ms)
+✔ account batch operation (22.919875ms)
+✔ shows takeover partial acceptance and the rejected account (0.110958ms)
+▶ creator deletion progress and frozen configuration
+  ✔ keeps accepted deletion behind the cleanup verification gate (0.301209ms)
+  ✔ shows released reservation without implying permanent deletion (0.062208ms)
+  ✔ allows only confirmed never-started tasks to change configuration (0.080834ms)
+✔ creator deletion progress and frozen configuration (0.884958ms)
+ℹ tests 21
+ℹ suites 2
+ℹ pass 21
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 338.82675

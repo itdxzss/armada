@@ -1,0 +1,63 @@
+{
+  "observedAt": "2026-09-14T03:39:07.358728+00:00",
+  "containerStartedAt": "2026-09-14T03:28:04.36218119Z",
+  "restartCount": 0,
+  "sameImage": true,
+  "jarSha256": "bd12e52f4559f26367dfcdbd946c8c4d869793e6dadef034c02cbe38e1006e1e",
+  "maxPollRecords": 10,
+  "lag": 14827,
+  "partitions": [
+    {
+      "partition": 0,
+      "current": 822278,
+      "end": 825193,
+      "lag": 2915,
+      "assigned": true
+    },
+    {
+      "partition": 2,
+      "current": 1150376,
+      "end": 1156376,
+      "lag": 6000,
+      "assigned": true
+    },
+    {
+      "partition": 1,
+      "current": 1440513,
+      "end": 1446425,
+      "lag": 5912,
+      "assigned": true
+    }
+  ],
+  "stable": true,
+  "rebalancingWarning": false,
+  "deadLetterEndOffsets": [
+    "armada.protocol.group.events.v1.DLT:0:3317",
+    "armada.protocol.group.events.v1.DLT:1:5342",
+    "armada.protocol.group.events.v1.DLT:2:4395"
+  ],
+  "deadLetterChangedSinceMid": false,
+  "groupPollTimeoutsSinceRestart": 0,
+  "groupCommitFailuresSinceRestart": 0,
+  "deadlockLogLinesSinceRestart": 0,
+  "groupConsumerConfigs": [
+    {
+      "group.id": "armada-api-group-events-staging",
+      "client.id": "consumer-armada-api-group-events-staging-5",
+      "max.poll.records": "10",
+      "max.poll.interval.ms": "300000"
+    },
+    {
+      "group.id": "armada-api-group-events-staging",
+      "client.id": "consumer-armada-api-group-events-staging-6",
+      "max.poll.records": "10",
+      "max.poll.interval.ms": "300000"
+    },
+    {
+      "group.id": "armada-api-group-events-staging",
+      "client.id": "consumer-armada-api-group-events-staging-7",
+      "max.poll.records": "10",
+      "max.poll.interval.ms": "300000"
+    }
+  ]
+}

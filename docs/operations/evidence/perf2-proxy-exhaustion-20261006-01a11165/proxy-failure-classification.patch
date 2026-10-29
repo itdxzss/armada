@@ -1,0 +1,205 @@
+diff --git a/api/service/login.go b/api/service/login.go
+index 3a902db..ecb26af 100644
+--- a/api/service/login.go
++++ b/api/service/login.go
+@@ -25,6 +25,7 @@ import (
+ 	"github.com/duke-git/lancet/v2/random"
+ 	"github.com/golang/protobuf/proto"
+ 	"github.com/google/uuid"
++	"github.com/pkg/errors"
+ 	"go.uber.org/zap"
+ )
+ 
+@@ -303,13 +304,13 @@ func loginService(dto *dto.LoginDto, wait bool) vo.Resp {
+ 		// create whatsApp
+ 		waApp, err = app.CreateWSApp(emptyAccountInfo)
+ 		if err != nil {
+-			return vo.IncompleteSys(err.Error())
++			return loginPreparationFailure(err)
+ 		}
+ 	} else {
+ 		// create whatsApp
+ 		waApp, err = app.CreateWSApp(emptyAccountInfo)
+ 		if err != nil {
+-			return vo.IncompleteSys(err.Error())
++			return loginPreparationFailure(err)
+ 		}
+ 	}
+ 
+@@ -332,13 +333,13 @@ func loginService(dto *dto.LoginDto, wait bool) vo.Resp {
+ 	// AppState 密钥、版本和 hash 与当前凭据同生命周期，连接前先防止旧凭据状态串用。
+ 	if err = waApp.PrepareAppStateStore(); err != nil {
+ 		waApp.Exit()
+-		return vo.IncompleteSys(err.Error())
++		return loginPreparationFailure(err)
+ 	}
+ 
+ 	// 保存 device identity key到数据库
+ 	err = waApp.SaveDeviceIdentityToDB()
+ 	if err != nil {
+-		return vo.IncompleteSys(err.Error())
++		return loginPreparationFailure(err)
+ 	}
+ 
+ 	// WALogin 返回后，网络连接已经交给协议层 goroutine。异步入口到这里即可返回，
+@@ -348,6 +349,14 @@ func loginService(dto *dto.LoginDto, wait bool) vo.Resp {
+ 	return finishLoginStart(loginPromise, wait)
+ }
+ 
++// loginPreparationFailure 区分注销生命周期拦截与系统故障，避免被当作代理失败自动重试。
++func loginPreparationFailure(err error) vo.Resp {
++	if errors.Is(err, app.ErrAccountDeletionBlocked) {
++		return vo.Resp{Code: vo.AccountDeletionBlockedCode, Msg: "account deletion blocks login"}
++	}
++	return vo.IncompleteSys(err.Error())
++}
++
+ // finishLoginStart 是同步/异步行为的唯一分叉点。把分叉限制在 Promise 等待处，
+ // 可以防止后续维护时两套登录准备逻辑逐渐产生差异。
+ func finishLoginStart(loginPromise _interface.IPromise, wait bool) vo.Resp {
+diff --git a/api/service/login_start_test.go b/api/service/login_start_test.go
+index 11aebb7..ec020ae 100644
+--- a/api/service/login_start_test.go
++++ b/api/service/login_start_test.go
+@@ -1,16 +1,33 @@
+ package service
+ 
+ import (
++	"fmt"
+ 	"sync/atomic"
+ 	"testing"
+ 	"time"
+ 
+ 	"ws-go/api/vo"
++	"ws-go/internal/service/app"
+ 	"ws-go/internal/service/define"
+ 	_interface "ws-go/internal/service/iface"
+ 	"ws-go/internal/service/utils/promise"
+ )
+ 
++func TestLoginPreparationFailurePreservesDeletionBlock(t *testing.T) {
++	err := fmt.Errorf("create account: %w", app.ErrAccountDeletionBlocked)
++	got := loginPreparationFailure(err)
++	if got.Code != vo.AccountDeletionBlockedCode {
++		t.Fatalf("response code = %d, want deletion block", got.Code)
++	}
++}
++
++func TestLoginPreparationFailureKeepsSystemFailureDistinct(t *testing.T) {
++	got := loginPreparationFailure(fmt.Errorf("database unavailable"))
++	if got.Code != vo.SysCode {
++		t.Fatalf("response code = %d, want system failure", got.Code)
++	}
++}
++
+ // recordingLoginPromise 只记录同步等待次数。测试不需要启动真实网络连接，
+ // 但必须完整实现 IPromise，避免异步入口被一个过度简化的 fake 误判为可用。
+ type recordingLoginPromise struct {
+diff --git a/api/vo/vo.go b/api/vo/vo.go
+index 195e5d4..bf1baf5 100644
+--- a/api/vo/vo.go
++++ b/api/vo/vo.go
+@@ -5,13 +5,14 @@ import (
+ )
+ 
+ const (
+-	SuccessCode              = 0
+-	SysCode                  = 1001
+-	RequestCode              = 1002
+-	AnErrorOccurredCode      = 1003 // 普通错误
+-	IncompleteParametersCode = 1004
+-	ParameterErrorCode       = 1005
+-	AccountOfflineErrorCode  = 1010 // 账号离线错误, 消息发送失败如果因为账号离线则返回此错误，中间层无视此错误，控超时继续重试发送
++	SuccessCode                = 0
++	SysCode                    = 1001
++	RequestCode                = 1002
++	AnErrorOccurredCode        = 1003 // 普通错误
++	IncompleteParametersCode   = 1004
++	ParameterErrorCode         = 1005
++	AccountOfflineErrorCode    = 1010 // 账号离线错误, 消息发送失败如果因为账号离线则返回此错误，中间层无视此错误，控超时继续重试发送
++	AccountDeletionBlockedCode = 1011 // 账号受注销生命周期保护，禁止重登和自动换代理
+ )
+ 
+ type Resp struct {
+diff --git a/internal/armada/executor.go b/internal/armada/executor.go
+index 48478f0..e162da5 100644
+--- a/internal/armada/executor.go
++++ b/internal/armada/executor.go
+@@ -242,8 +242,8 @@ func (e *LifecycleExecutor) startOnline(
+ 	if published {
+ 		return false, nil
+ 	}
+-	if response.Code == vo.ParameterErrorCode {
+-		// 参数错误不会因重试恢复，转换为 NEED_REAUTH 后即可提交 Kafka offset。
++	if response.Code == vo.ParameterErrorCode || response.Code == vo.AccountDeletionBlockedCode {
++		// 参数错误或注销拦截不会因更换代理恢复，转换为 NEED_REAUTH 后停止自动上线。
+ 		publishErr := e.publish(ctx, commandContext, external.WhatsAppEventPayload{
+ 			Code:       response.Code,
+ 			ReasonCode: response.Code,
+@@ -252,8 +252,8 @@ func (e *LifecycleExecutor) startOnline(
+ 		})
+ 		return false, publishErr
+ 	}
+-	// WALogin 尚未成功接管连接时已经得到明确失败，直接回传 PROXY_FAILED。这里只记录
+-	// 安全的数值状态码；response.Msg 可能来自底层库，不进入日志或终态消息。
++	// 登录准备阶段的系统错误不构成代理失败证据。发布 OFFLINE 结束本次命令，
++	// 不触发后端禁用代理和换 IP 重登；response.Msg 可能包含敏感信息，保持不外传。
+ 	zap.L().Warn("Armada Zhuan lifecycle login start rejected",
+ 		zap.String("commandId", command.CommandID),
+ 		zap.Int64("accountId", commandContext.AccountID),
+@@ -263,9 +263,9 @@ func (e *LifecycleExecutor) startOnline(
+ 		zap.Int("responseCode", response.Code),
+ 		zap.String("streamMessageId", streamMessageID))
+ 	publishErr := e.publish(ctx, commandContext, external.WhatsAppEventPayload{
+-		Code:       302,
++		Code:       response.Code,
+ 		ReasonCode: response.Code,
+-		EventType:  external.EventAbnormalOffline,
++		EventType:  external.EventNormalOffline,
+ 		Message:    "Zhuan login start failed",
+ 	})
+ 	return false, publishErr
+diff --git a/internal/armada/executor_test.go b/internal/armada/executor_test.go
+index 4219214..68c9616 100644
+--- a/internal/armada/executor_test.go
++++ b/internal/armada/executor_test.go
+@@ -212,7 +212,7 @@ func TestLifecycleExecutorOfflineAlreadyStoppedPublishesOffline(t *testing.T) {
+ 	assertPublishedTarget(t, events, "OFFLINE")
+ }
+ 
+-func TestLifecycleExecutorOnlineImmediateFailurePublishesProxyFailed(t *testing.T) {
++func TestLifecycleExecutorOnlineImmediateSystemFailureDoesNotInvalidateProxy(t *testing.T) {
+ 	events := &fakeStateEventService{}
+ 	executor := &LifecycleExecutor{
+ 		Contexts: &fakeContextStore{},
+@@ -226,7 +226,29 @@ func TestLifecycleExecutorOnlineImmediateFailurePublishesProxyFailed(t *testing.
+ 	if err != nil || awaitingTerminal {
+ 		t.Fatalf("StartAsync() = %v, %v; want false, nil", awaitingTerminal, err)
+ 	}
+-	assertPublishedTarget(t, events, "PROXY_FAILED")
++	assertPublishedTarget(t, events, "OFFLINE")
++	if events.published[0].payload.ReasonCode != vo.SysCode {
++		t.Fatalf("ReasonCode = %d, want original system failure", events.published[0].payload.ReasonCode)
++	}
++}
++
++func TestLifecycleExecutorDeletedAccountStopsWithoutProxyFailure(t *testing.T) {
++	events := &fakeStateEventService{}
++	executor := &LifecycleExecutor{
++		Contexts: &fakeContextStore{},
++		Events:   events,
++		StartSixLogin: func(*dto.SixLoginDto) vo.Resp {
++			return vo.Resp{Code: vo.AccountDeletionBlockedCode, Msg: "account deletion blocks login"}
++		},
++	}
++	awaitingTerminal, err := executor.StartAsync(context.Background(), validOnlineProtocolCommand(), "stream-deleted")
++	if err != nil || awaitingTerminal {
++		t.Fatalf("StartAsync() = %v, %v; want false, nil", awaitingTerminal, err)
++	}
++	assertPublishedTarget(t, events, "NEED_REAUTH")
++	if events.published[0].payload.ReasonCode != vo.AccountDeletionBlockedCode {
++		t.Fatalf("ReasonCode = %d, want deletion block", events.published[0].payload.ReasonCode)
++	}
+ }
+ 
+ type publishedState struct {

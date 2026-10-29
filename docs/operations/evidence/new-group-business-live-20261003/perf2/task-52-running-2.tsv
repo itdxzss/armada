@@ -1,0 +1,27 @@
+observed_utc	db_schema
+2026-10-03 04:39:52.907	armada_perf
+id	tenant_id	task_name	creation_mode	status	primary_stage	blocking_reason	group_name	group_count	expected_pull_count	created_at	started_at	finished_at	updated_at
+52	1	NG验收-perf2-20261003-1230	NEW_GROUP	EXECUTING	NULL	NULL	NULL	1	6	1791001922836	1791002280551	NULL	1791002280558
+task_id	creator_group_id	manager_group_id	puller_group_id	station_group_id	early_pull_call_count	pull_count_min	pull_count_max	pull_interval_seconds	pull_interval_max_seconds	puller_count_per_group	station_count_per_call	initial_station_count	concurrent_group_count	required_manager_count	is_creator_leave_after_pull
+52	658	659	664	NULL	0	1	3	10	15	1	0	0	1	1	0
+task_id	is_group_setting_enabled	setting_timing	group_name	is_material_filename_as_group_name	group_description	edit_permission_mode	mute_mode	link_permission_mode	disappearing_message_mode
+52	1	1	NG验收-perf2-20261003-1230	0	NEW_GROUP 真实业务验收｜perf2｜2026-10-03 12:30\n群名称和简介回读匹配并持久化后，才允许拉入受控料子。	0	0	2	0
+id	task_id	seq	group_jid	group_subject	source_file_name	attempt_no	total_line_count	valid_member_count	invalid_line_count	duplicate_line_count	execution_status	stage	create_step	create_operation_id	create_attempt_count	manual_paused	reason_code	reason_message	profile_verified_at	profile_verified_command_id	created_at	started_at	finished_at	updated_at
+257	52	1	120363411384572796@g.us	NG验收-perf2-20261003-1230	A8-XA747-perf2-accept-6.txt	1	6	6	0	0	2	2	7	ptgc:1:257	0	0	NULL	NULL	1791002326522	cmd_5827c8d52eb14a5c9a51a1dac1c78e3c	1791001922836	1791002280558	NULL	1791002391920
+role_row_id	group_execution_id	account_id	phone_tail	protocol_id	role_type	entry_mode	membership_status	membership_result_at	joined_at	admin_status	availability_status	occupied_at	released_at
+1419	257	999	2815	ANDROID	4	NULL	2	NULL	1791002281529	0	1	NULL	NULL
+1420	257	1038	4355	ANDROID	1	4	2	NULL	1791002281529	1	1	NULL	NULL
+id	group_execution_id	action_type	actor_group_account_id	target_group_account_id	action_status	command_id	attempt_no	reason_code	reason_message	retryable	submitted_at	result_at	created_at	updated_at
+4253	257	7	1419	1419	3	cmd_5827c8d52eb14a5c9a51a1dac1c78e3c	1	NULL	NULL	0	1791002286767	1791002288560	1791002286767	1791002288560
+id	group_execution_id	member_seq	phone_tail	admin_required	pull_call_id	pull_status	pull_failure_count	pull_reason_code	pull_reason_message	pull_result_at	admin_status	admin_command_id
+55650	257	1	4688	0	NULL	0	0	NULL	NULL	NULL	0	NULL
+55651	257	2	5126	0	NULL	0	0	NULL	NULL	NULL	0	NULL
+55652	257	3	2275	0	NULL	0	0	NULL	NULL	NULL	0	NULL
+55653	257	4	7986	0	NULL	0	0	NULL	NULL	NULL	0	NULL
+55654	257	5	8145	0	NULL	0	0	NULL	NULL	NULL	0	NULL
+55655	257	6	1015	0	NULL	0	0	NULL	NULL	NULL	0	NULL
+id	command_id	command_type	protocol_backend	aggregate_type	aggregate_id	status	retry_count	created_at	sent_at	updated_at	task_id	execution_id	action_id	pull_call_id
+10881931	cmd_5827c8d52eb14a5c9a51a1dac1c78e3c	group.profile.apply	ANDROID	PULL_TASK_ACCOUNT_ACTION	4253	2	0	1791002286782	1791002286834	1791002286834	NULL	257	4253	NULL
+execution_id	profile_verified_at	profile_verified_command_id	first_material_command_submitted_at	first_material_outbox_created_at	first_material_outbox_sent_at	proof_lead_ms
+257	1791002326522	cmd_5827c8d52eb14a5c9a51a1dac1c78e3c	NULL	NULL	NULL	NULL
+

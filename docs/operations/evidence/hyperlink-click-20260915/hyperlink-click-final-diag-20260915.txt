@@ -1,0 +1,12 @@
+RUNTIME {"Status": "running", "StartedAt": "2026-09-14T17:43:05.346768166Z"}
+PUBLIC_BASE "http://armada.65.2.123.53.nip.io"
+TRACKED_EXPOSURES
+is_short_link_enabled	tasks	single_check	double_check	uv
+1	2	62	53	0
+0	21	689	617	0
+
+CANARY_CANDIDATE
+recipient_id	hyperlink_task_id	send_status	short_code_hash	click_count	first_visit_at
+34035	26	4	c7e729fad4	0	NULL
+
+ENCODED_AND_CASE_INSENSITIVE_LOG_RECHECK {"groups": [{"kind": "prior", "code": "no_known_code", "status": "404", "count": 3}, {"kind": "our_probe", "code": "no_known_code", "status": "404", "count": 2}], "samples": [{"time": "31/Aug/2026:08:04:04 +0000", "task": null, "method": "GET", "status": "404", "our_probe": false}, {"time": "01/Sep/2026:02:31:20 +0000", "task": null, "method": "GET", "status": "404", "our_probe": false}, {"time": "01/Sep/2026:02:35:53 +0000", "task": null, "method": "GET", "status": "404", "our_probe": false}, {"time": "15/Sep/2026:02:14:09 +0000", "task": null, "method": "GET", "status": "404", "our_probe": true}, {"time": "15/Sep/2026:02:15:05 +0000", "task": null, "method": "GET", "status": "404", "our_probe": true}]}

@@ -1,0 +1,40 @@
+ M src/api/account-group.ts
+ M src/api/account-pairing.ts
+ M src/api/join-task.ts
+ M src/api/pull-task.ts
+ M src/views/account/import/components/AccountPairingDialog.test.ts
+ M src/views/account/import/components/AccountPairingDialog.vue
+ M src/views/account/import/index.vue
+ M src/views/task/join-task/components/JoinTaskDetailDrawer.vue
+ M src/views/task/pull-task/CommonGroupCreate.test.ts
+ M src/views/task/pull-task/PullTaskIndex.test.ts
+ M src/views/task/pull-task/components/PullTaskCreateDrawer.vue
+ M src/views/task/pull-task/components/PullTaskDataPackagePicker.vue
+ M src/views/task/pull-task/components/PullTaskDetailDrawer.vue
+ M src/views/task/pull-task/components/PullTaskDetailSearch.vue
+ M src/views/task/pull-task/components/PullTaskExecutionDetailDrawer.vue
+ M src/views/task/pull-task/components/PullTaskExecutionResourceActions.vue
+ M src/views/task/pull-task/components/PullTaskStandardCreateLayout.test.ts
+ M src/views/task/pull-task/components/PullTaskStandardExecutionResourceCounts.vue
+ M src/views/task/pull-task/components/PullTaskStandardSavedSettings.vue
+ M src/views/task/pull-task/components/PullTaskTable.vue
+ M src/views/task/pull-task/composables/useCommonGroupCreate.ts
+ M src/views/task/pull-task/index.vue
+ M src/views/task/pull-task/standard-execution-display.ts
+?? .harness/changes/2026-09-18-account-selected-export.md
+?? .harness/changes/account-group-count-labels/
+?? .harness/changes/account-group-mutual-contacts/
+?? .harness/changes/control-pairing-switch/
+?? .harness/changes/cp10-local-registration/
+?? .harness/changes/direct-link-pull-task/
+?? .harness/changes/join-task-admin-cleanup/
+?? e2e/account-pairing-local.spec.ts
+?? e2e/direct-link-pull-local.spec.ts
+?? src/views/task/join-task/admin-reason.ts
+?? src/views/task/pull-task/components/PullTaskDirectLinkCreateContent.vue
+?? src/views/task/pull-task/components/PullTaskDirectLinkResources.vue
+?? src/views/task/pull-task/composables/useCommonGroupCreate.test.ts
+?? src/views/task/pull-task/composables/useDirectLinkPullTaskCreate.test.ts
+?? src/views/task/pull-task/composables/useDirectLinkPullTaskCreate.ts
+?? src/views/task/pull-task/creation-mode-display.ts
+?? src/views/task/pull-task/direct-link-display.test.ts

@@ -1,0 +1,5 @@
+{"file": "/home/app/armada-deploy/logs/backend/armada-api.log", "lines": 115518, "first": "2026-09-15T00:00:00.166", "last": "2026-09-15T02:16:35.005", "click_matches": {}, "samples": []}
+{"file": "/home/app/armada-deploy/logs/backend/armada-api.log.2026-09-14.0.gz", "lines": 1218269, "first": "2026-09-14T00:00:00.248", "last": "2026-09-14T23:59:59.312", "click_matches": {}, "samples": []}
+{"check": "sudo -n ufw status", "exit": 0, "result": "Status: inactive\n", "error": ""}
+{"check": "sudo -n iptables -S DOCKER-USER", "exit": 0, "result": "-N DOCKER-USER\n", "error": ""}
+{"aws_cli_available": false}

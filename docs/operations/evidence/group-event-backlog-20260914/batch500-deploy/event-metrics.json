@@ -1,0 +1,51 @@
+{
+  "start": "2026-09-14T04:04:16.47104485Z",
+  "at": "2026-09-14T04:10:14.778278+00:00",
+  "counts": {
+    "profile": 490,
+    "participant": 1451
+  },
+  "minutes": {
+    "04:05": {
+      "profile": 85,
+      "participant": 221
+    },
+    "04:06": {
+      "profile": 102,
+      "participant": 315
+    },
+    "04:07": {
+      "participant": 278,
+      "profile": 88
+    },
+    "04:08": {
+      "participant": 308,
+      "profile": 97
+    },
+    "04:09": {
+      "participant": 261,
+      "profile": 91
+    },
+    "04:10": {
+      "participant": 68,
+      "profile": 27
+    }
+  },
+  "profileMemberCounts": {
+    "15": 490
+  },
+  "next_event_gap_seconds_NOT_exact_handler_time": {
+    "profile": {
+      "n": 488,
+      "median": 0.948,
+      "p95": 1.818,
+      "max": 3.478
+    },
+    "participant": {
+      "n": 1450,
+      "median": 0.257,
+      "p95": 0.595,
+      "max": 1.425
+    }
+  }
+}

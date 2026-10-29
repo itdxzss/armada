@@ -1,0 +1,9 @@
+{
+  "observedAt": "2026-10-06T09:52:33.350819+00:00",
+  "action": "POST normal backend online for accountIds [1720,1737,1709,2187]",
+  "executed": false,
+  "decision": "auto-review-rejected",
+  "reason": "Real account online lifecycle mutation was judged outside the original acceptance and read-only diagnostic scope; account selection authorization was not treated as online authorization.",
+  "explicitFollowupRequested": true,
+  "noAlternativeEndpointUsed": true
+}

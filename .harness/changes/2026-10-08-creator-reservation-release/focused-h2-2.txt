@@ -1,0 +1,330 @@
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] -----------------------< com.armada:armada-api >------------------------
+[INFO] Building armada-api 1.0.2-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ armada-api ---
+[INFO] Copying 1 resource from src/main/resources to target/classes
+[INFO] Copying 353 resources from src/main/resources to target/classes
+[INFO] 
+[INFO] --- compiler:3.13.0:compile (default-compile) @ armada-api ---
+[INFO] Nothing to compile - all classes are up to date.
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ armada-api ---
+[INFO] Copying 1 resource from src/test/resources to target/test-classes
+[INFO] 
+[INFO] --- compiler:3.13.0:testCompile (default-testCompile) @ armada-api ---
+[INFO] Recompiling the module because of changed source code.
+[INFO] Compiling 949 source files with javac [debug parameters release 17] to target/test-classes
+[INFO] /Users/daishuaishuai/IdeaProjects/armada/armada-api/src/test/java/com/armada/account/takeover/AccountTakeoverH2Support.java: 某些输入文件使用或覆盖了已过时的 API。
+[INFO] /Users/daishuaishuai/IdeaProjects/armada/armada-api/src/test/java/com/armada/account/takeover/AccountTakeoverH2Support.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+[INFO] /Users/daishuaishuai/IdeaProjects/armada/armada-api/src/test/java/com/armada/account/service/impl/AccountBatchLifecycleServiceImplTest.java: 某些输入文件使用了未经检查或不安全的操作。
+[INFO] /Users/daishuaishuai/IdeaProjects/armada/armada-api/src/test/java/com/armada/account/service/impl/AccountBatchLifecycleServiceImplTest.java: 有关详细信息, 请使用 -Xlint:unchecked 重新编译。
+[INFO] 
+[INFO] --- surefire:3.2.5:test (default-test) @ armada-api ---
+[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
+[INFO] 
+[INFO] -------------------------------------------------------
+[INFO]  T E S T S
+[INFO] -------------------------------------------------------
+[INFO] Running com.armada.task.mapper.PullTaskCreatorDeletionReleaseMigrationTest
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.429 s -- in com.armada.task.mapper.PullTaskCreatorDeletionReleaseMigrationTest
+[INFO] Running com.armada.task.scheduler.PullTaskCreatorDeletionReleaseH2Test
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader classes because bootstrap classpath has been appended
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+09:59:00.203 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TEST_TERMINAL
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+09:59:00.504 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TEST_TERMINAL
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+09:59:00.692 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TEST_TERMINAL
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+09:59:00.866 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TEST_TERMINAL
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+09:59:01.080 [main] WARN com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 终态执行缺少建群注销账本，保留预留 tenantId=1 taskId=11 executionId=111
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+09:59:01.209 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TEST_TERMINAL
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+09:59:01.453 [main] WARN com.armada.task.scheduler.PullTaskCreatorReservationReleaseJob -- 建群账号预留补扫失败 tenantId=1 taskId=11 executionId=111 errorType=DataIntegrityViolationException
+09:59:01.477 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=12 executionId=112 accountId=2 reason=TERMINAL_SWEEP
+09:59:01.498 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TERMINAL_SWEEP
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+09:59:01.640 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TEST_TERMINAL
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+09:59:01.794 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TEST_TERMINAL
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+09:59:02.387 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TEST_TERMINAL
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+09:59:02.712 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TEST_TERMINAL
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+09:59:03.069 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TEST_TERMINAL
+09:59:03.089 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线开始 accountId=1
+09:59:03.153 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线写入 outbox 前准备 command accountId=1 attemptId=oa_20261009015903_z1b1oskn43xy allocatedProxyId=70 credentialFormat=SIX_SEGMENT credentialLength=2
+09:59:03.204 [main] INFO com.armada.platform.kafka.dispatch.ProtocolCommandDispatchTrigger -- 协议命令 outbox afterCommit dispatch 已关闭 rows=1
+09:59:03.205 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=null commandCount=1 inserted=1
+09:59:03.205 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线 outbox 已受理 accountId=1 allocatedProxyId=70 commandIds=1 inserted=1
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+09:59:03.753 [main] INFO com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService -- 建群账号预留已释放 tenantId=1 taskId=11 executionId=111 accountId=1 reason=TEST_TERMINAL
+[INFO] Tests run: 26, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 5.542 s -- in com.armada.task.scheduler.PullTaskCreatorDeletionReleaseH2Test
+[INFO] Running com.armada.account.service.impl.AccountBatchTakeoverH2Test
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+09:59:03.860 [main] ERROR com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量生命周期拒绝结果不一致 operation=TAKEOVER chunkIndex=1
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+09:59:04.364 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量一键抢登开始 requested=3
+09:59:04.397 [main] WARN com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量生命周期受限 operation=TAKEOVER chunkIndex=1 rejected=1 remaining=2
+09:59:04.420 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量一键抢登开始 requested=2
+09:59:04.447 [main] INFO com.armada.platform.kafka.dispatch.ProtocolCommandDispatchTrigger -- 协议命令 outbox afterCommit dispatch 已关闭 rows=2
+09:59:04.447 [main] INFO com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImpl -- 协议命令 outbox 已写入 batchId=batch_026aa2b2461647a28721d3dbe2234769 commandCount=2 inserted=2
+09:59:04.451 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号上线 outbox 已受理 source=login_replaced_takeover requested=2 snapshotUpdated=2 inserted=2 batchId=batch_026aa2b2461647a28721d3dbe2234769 commandIds=2
+09:59:04.453 [main] INFO com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次已处理 operation=TAKEOVER chunkIndex=1 requested=2 accepted=2
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+09:59:04.752 [main] INFO com.armada.account.service.impl.AccountOnlineCommandServiceImpl -- 账号批量一键抢登开始 requested=1
+09:59:04.795 [main] WARN com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量生命周期受限 operation=TAKEOVER chunkIndex=1 rejected=1 remaining=0
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+09:59:04.961 [main] WARN com.armada.account.service.impl.AccountBatchLifecycleServiceImpl -- 账号批量内部批次失败 operation=TAKEOVER chunkIndex=1 requested=3 errorType=IllegalStateException error=database unavailable
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.191 s -- in com.armada.account.service.impl.AccountBatchTakeoverH2Test
+[INFO] Running com.armada.account.service.AccountCreatorReservationReleaseH2Test
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.739 s -- in com.armada.account.service.AccountCreatorReservationReleaseH2Test
+[INFO] 
+[INFO] Results:
+[INFO] 
+[INFO] Tests run: 37, Failures: 0, Errors: 0, Skipped: 0
+[INFO] 
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  42.373 s
+[INFO] Finished at: 2026-10-09T09:59:05+08:00
+[INFO] ------------------------------------------------------------------------

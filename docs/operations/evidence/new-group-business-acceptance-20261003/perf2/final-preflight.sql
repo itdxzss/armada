@@ -1,0 +1,10 @@
+SELECT UTC_TIMESTAMP(3) observed_utc;
+SELECT 'normal_group_creation_group_reference' source,id,status,admin_account_group_id,secondary_admin_account_group_id,member_account_group_id,deleted_at FROM normal_group_creation_task WHERE deleted_at IS NULL AND (admin_account_group_id IN(658,659,664) OR secondary_admin_account_group_id IN(658,659,664) OR member_account_group_id IN(658,659,664));
+SELECT 'join_task_group_or_selected_account' source,id,status,deleted_at FROM join_task WHERE deleted_at IS NULL AND (account_group_ids REGEXP '(^|[^0-9])(658|659|664)([^0-9]|$)' OR selected_account_ids REGEXP '(^|[^0-9])(821|999|1038)([^0-9]|$)');
+SELECT 'group_creation_marketing_group_reference' source,id,status,account_group_id,deleted_at FROM group_creation_marketing_task WHERE deleted_at IS NULL AND account_group_id IN(658,659,664);
+SELECT 'marketing_task_group_reference' source,id,status,account_group_id,deleted_at FROM marketing_task WHERE deleted_at IS NULL AND account_group_id IN(658,659,664);
+SELECT 'script_marketing_task_group_reference' source,id,status,account_group_id FROM script_marketing_task WHERE account_group_id IN(658,659,664);
+SELECT 'feed_filter_group_reference' source,id,status,task_status,deleted_at FROM feed_task WHERE deleted_at IS NULL AND account_filter REGEXP '(^|[^0-9])(658|659|664|821|999|1038)([^0-9]|$)';
+SELECT 'contact_filter_group_reference' source,id,run_status,is_enabled,deleted_at FROM contact_friend_task WHERE deleted_at IS NULL AND account_filter REGEXP '(^|[^0-9])(658|659|664|821|999|1038)([^0-9]|$)';
+SELECT id,creation_mode,status,created_at,group_count FROM pull_task WHERE deleted_at IS NULL ORDER BY id DESC LIMIT 5;
+SELECT COUNT(*) new_group_tasks_created_since_preflight FROM pull_task WHERE creation_mode='NEW_GROUP' AND created_at>=1790999716000;

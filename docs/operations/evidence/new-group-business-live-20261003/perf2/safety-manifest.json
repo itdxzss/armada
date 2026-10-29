@@ -1,0 +1,91 @@
+{
+  "audited_files": 15,
+  "scope": "Selected evidence only; excludes source scripts, SQL helpers, pyc files, and controlled full-phone sample. Phone-bearing DB fields were selected as RIGHT(...,4); protocol output was reduced to ID/tail; focused logs redact account handles. Numeric command/outbox IDs, epoch timestamps and full group JID are retained intentionally.",
+  "detectors": [
+    "unmasked_account_handle",
+    "phone_jid",
+    "invitation_url_token",
+    "private_key",
+    "bearer_credential",
+    "credential_assignment",
+    "exact_full_controlled_phone_match"
+  ],
+  "issues": [],
+  "manifest": [
+    {
+      "file": "live-preflight.tsv",
+      "bytes": 1726,
+      "sha256": "5bedcdf8db54e1f9fc6d2d48d592c2c7893a61444e256b4eba942ef38e1cc50f"
+    },
+    {
+      "file": "protocol-status.jsonl",
+      "bytes": 617,
+      "sha256": "a489160bd065c317497ebac995c0a60d05cf5e43b0c742ee40bbbdc4db29424b"
+    },
+    {
+      "file": "task-52-backend-focused.log",
+      "bytes": 47328,
+      "sha256": "6bef960c1ede9c05b039fbd634ecd4bad74e56532088256f33e52ac18d6b7a72"
+    },
+    {
+      "file": "task-52-baseline.tsv",
+      "bytes": 2035,
+      "sha256": "d70497bf312e8d21670e3a58e01f80129ff8ef077dd449027cb948d90dd38d98"
+    },
+    {
+      "file": "task-52-blocked-final.tsv",
+      "bytes": 3446,
+      "sha256": "fed02731007c76f075d2e1d30e336a29300a4bb08c598e0d29bff75fdf324f38"
+    },
+    {
+      "file": "task-52-prestart-complete.tsv",
+      "bytes": 2243,
+      "sha256": "c508413310c588567f90b06fb073f5df5269591bb07adc30b81af5e2b4c91424"
+    },
+    {
+      "file": "task-52-prestart-preflight.tsv",
+      "bytes": 1857,
+      "sha256": "4033d806ca504002d15b7fc9927859f6e68e4c17278c3400b963dc8a3fb77428"
+    },
+    {
+      "file": "task-52-prestart-status.jsonl",
+      "bytes": 617,
+      "sha256": "cf467a3e4c837fa35a505f4096363b746a63add22318197fa12f1e3cecbc511c"
+    },
+    {
+      "file": "task-52-readback-early.json",
+      "bytes": 1529,
+      "sha256": "0e433d1a16227c4fa8cd65a45973ced27c2b1d51a965a1c5f8df4cc1deaf362a"
+    },
+    {
+      "file": "task-52-readback-final.json",
+      "bytes": 1529,
+      "sha256": "895be3736c1de8f195cbaca65f1838ac4766313e4f1fb7f8006505f008d0ff21"
+    },
+    {
+      "file": "task-52-report.json",
+      "bytes": 7490,
+      "sha256": "29b695f344520ab3780ba39fedb841681113a6ebf398617fab02d330ded60207"
+    },
+    {
+      "file": "task-52-retry-timeline.json",
+      "bytes": 2405,
+      "sha256": "b7050187f0b3c760295c94f1cc47425e9aeb28844d4e9e09a2b067cb8a0983a9"
+    },
+    {
+      "file": "task-52-running-1.tsv",
+      "bytes": 3380,
+      "sha256": "e6da89f4a6b76c958560bc75a502a74f6798bf0da1b032c933336eae98f5e09b"
+    },
+    {
+      "file": "task-52-running-2.tsv",
+      "bytes": 3380,
+      "sha256": "1ddd6a12cca92754804c485a3956f51c6e90195e31d78036da5e4c50872d2cf4"
+    },
+    {
+      "file": "task-52-running-3.tsv",
+      "bytes": 3380,
+      "sha256": "11b5242a988211e79237eb17a3b1ab6a18574c75dc9ebf43b311f87b33d74ca5"
+    }
+  ]
+}

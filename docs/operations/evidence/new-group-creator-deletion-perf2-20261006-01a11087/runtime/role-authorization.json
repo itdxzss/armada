@@ -1,0 +1,16 @@
+{
+  "recordedAt": "2026-10-06T09:45:37.939374+00:00",
+  "userAuthorization": "你问的四个问题， 都确认， 账号你随便选",
+  "tenantId": 1,
+  "deletionCreatorAccountId": 1720,
+  "controlCreatorAccountId": 1737,
+  "preferredManagerAccountId": 2187,
+  "fallbackManagerAccountId": 1729,
+  "pullerAccountId": 1709,
+  "testMemberAccountId": 2774,
+  "maximumTaskCount": 2,
+  "groupsPerTask": 1,
+  "membersToPullPerTask": 1,
+  "marketingEnabled": false,
+  "noDirectDeletionEndpoint": true
+}

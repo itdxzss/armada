@@ -1,0 +1,16 @@
+SELECT 'OVERLAP' section;
+SELECT COUNT(*) task11_total,SUM(a.id IS NOT NULL) overlap_task10,SUM(a.send_status=6) from_task10_failed,SUM(a.send_status IN(3,4,5)) from_task10_success,SUM(b.send_status IN(3,4,5)) recovered,SUM(b.send_status=6) still_failed FROM hyperlink_task_recipient b LEFT JOIN hyperlink_task_recipient a ON a.tenant_id=b.tenant_id AND a.hyperlink_task_id=10 AND a.recipient_phone_snapshot=b.recipient_phone_snapshot WHERE b.tenant_id=1 AND b.hyperlink_task_id=11;
+SELECT 'RECOVERY_BY_ORIGINAL_REASON' section;
+SELECT a.fail_code original_reason,COUNT(*) original_failed,SUM(b.send_status IN(3,4,5)) recovered,SUM(b.send_status=6) still_failed,SUM(b.id IS NULL) absent FROM hyperlink_task_recipient a LEFT JOIN hyperlink_task_recipient b ON b.tenant_id=a.tenant_id AND b.hyperlink_task_id=11 AND b.recipient_phone_snapshot=a.recipient_phone_snapshot WHERE a.tenant_id=1 AND a.hyperlink_task_id=10 AND a.send_status=6 GROUP BY a.fail_code ORDER BY original_failed DESC;
+SELECT 'STILL_FAILED_MATRIX' section;
+SELECT a.fail_code original_reason,b.fail_code retry_reason,COUNT(*) n FROM hyperlink_task_recipient a JOIN hyperlink_task_recipient b ON b.tenant_id=a.tenant_id AND b.hyperlink_task_id=11 AND b.recipient_phone_snapshot=a.recipient_phone_snapshot WHERE a.tenant_id=1 AND a.hyperlink_task_id=10 AND b.send_status=6 GROUP BY a.fail_code,b.fail_code ORDER BY n DESC;
+SELECT 'OUTBOX' section;
+SELECT r.hyperlink_task_id,r.fail_code,o.status,COUNT(*) n,SUM(r.sent_at IS NOT NULL) has_sent_at,SUM(r.delivered_at IS NOT NULL) has_delivered_at,SUM(r.protocol_message_id IS NOT NULL) has_message_id,MAX(o.retry_count) outbox_max_retry FROM hyperlink_task_recipient r LEFT JOIN protocol_command_outbox o ON o.tenant_id=r.tenant_id AND o.command_id=r.command_id WHERE r.tenant_id=1 AND r.hyperlink_task_id IN(10,11) AND r.send_status=6 GROUP BY r.hyperlink_task_id,r.fail_code,o.status;
+SELECT 'SAMPLES' section;
+SELECT hyperlink_task_id,id,account_id,protocol_id,command_id,protocol_message_id,fail_code,dispatch_attempt,submitted_at,failed_at FROM (SELECT r.*,ROW_NUMBER() OVER(PARTITION BY hyperlink_task_id,fail_code ORDER BY id) rn FROM hyperlink_task_recipient r WHERE tenant_id=1 AND hyperlink_task_id IN(10,11) AND send_status=6) t WHERE rn<=2 ORDER BY hyperlink_task_id,fail_code,id;
+SELECT 'STRATEGY' section;
+SELECT id,account_filter,concurrent_num,max_use_account,account_max_send_num FROM hyperlink_strategy WHERE tenant_id=1 AND id IN(10,11);
+SELECT 'USAGE' section;
+SELECT hyperlink_task_id,usage_status,invalid_code,invalid_reason,COUNT(*) n,SUM(successful_send_count) successes,SUM(in_flight_count) inflight FROM hyperlink_task_account_usage WHERE tenant_id=1 AND hyperlink_task_id IN(10,11) GROUP BY hyperlink_task_id,usage_status,invalid_code,invalid_reason;
+SELECT 'SCHEMA_ADDITIONAL' section;
+SELECT table_name,column_name FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name IN('account_state','account_operation_restriction','protocol_account_risk_event','data_package_phone','data_package_stat') ORDER BY table_name,ordinal_position;

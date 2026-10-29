@@ -1,0 +1,81 @@
+{
+  "taskId": 26,
+  "recipientId": 34035,
+  "snapshots": [
+    {
+      "capturedAt": "2026-09-15T02:21:24.884532+00:00",
+      "taskId": 26,
+      "recipientId": 34035,
+      "shortCodeHash": "c7e729fad4",
+      "recipientClickCount": 0,
+      "firstVisitAt": null,
+      "lastVisitAt": null,
+      "firstVisitUserAgent": "NULL",
+      "taskUv": 0,
+      "taskPv": 0,
+      "taskSingleCheck": 52,
+      "taskDoubleCheck": 44,
+      "expectedRedirectHash": "d2e3ccb87bcaf211400de72545be7a7adbca505c673b1a060b43d04a9f866217"
+    },
+    {
+      "capturedAt": "2026-09-15T02:22:26.228808+00:00",
+      "taskId": 26,
+      "recipientId": 34035,
+      "shortCodeHash": "c7e729fad4",
+      "recipientClickCount": 1,
+      "firstVisitAt": 1789438935318,
+      "lastVisitAt": 1789438935318,
+      "firstVisitUserAgent": "Armada-Diagnostic/20260915-task26-recipient34035",
+      "taskUv": 1,
+      "taskPv": 1,
+      "taskSingleCheck": 52,
+      "taskDoubleCheck": 44,
+      "expectedRedirectHash": "d2e3ccb87bcaf211400de72545be7a7adbca505c673b1a060b43d04a9f866217"
+    },
+    {
+      "capturedAt": "2026-09-15T02:23:01.051303+00:00",
+      "taskId": 26,
+      "recipientId": 34035,
+      "shortCodeHash": "c7e729fad4",
+      "recipientClickCount": 2,
+      "firstVisitAt": 1789438935318,
+      "lastVisitAt": 1789438960557,
+      "firstVisitUserAgent": "Armada-Diagnostic/20260915-task26-recipient34035",
+      "taskUv": 1,
+      "taskPv": 2,
+      "taskSingleCheck": 52,
+      "taskDoubleCheck": 44,
+      "expectedRedirectHash": "d2e3ccb87bcaf211400de72545be7a7adbca505c673b1a060b43d04a9f866217"
+    }
+  ],
+  "taskClickRate": "1.92%",
+  "validation": "PASS",
+  "testUvAdded": 1,
+  "testPvAdded": 2,
+  "response1": {
+    "stage": 1,
+    "finishedAt": "2026-09-15T02:22:15.483561+00:00",
+    "curlExit": 0,
+    "httpStatus": 302,
+    "redirectFollowed": false,
+    "redirectMatchesFrozenTarget": true,
+    "traceId": "6dcaf72c94ea4aa1bfd015110acfe31f",
+    "cacheControl": "no-store",
+    "durationSeconds": 1.371901,
+    "bodyBytes": 0,
+    "transportError": ""
+  },
+  "response2": {
+    "stage": 2,
+    "finishedAt": "2026-09-15T02:22:40.709459+00:00",
+    "curlExit": 0,
+    "httpStatus": 302,
+    "redirectFollowed": false,
+    "redirectMatchesFrozenTarget": true,
+    "traceId": "293c5a1c7bff448696f0c9fcc7524840",
+    "cacheControl": "no-store",
+    "durationSeconds": 1.113223,
+    "bodyBytes": 0,
+    "transportError": ""
+  }
+}

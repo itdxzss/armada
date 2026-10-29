@@ -1,0 +1,13 @@
+{
+  "container_started": "2026-09-19T12:22:58.554217846Z",
+  "binary_size": 76766744,
+  "symbols": {
+    "generateAndShareNewKey": false,
+    "GenerateNewKey": false,
+    "AppStateKeyAvailable": true,
+    "StoreAppStateSyncKey": true,
+    "persistLegacyAppStatePayload": true,
+    "AppState key recovery is unavailable for primary-device credentials": true
+  },
+  "build_revision": null
+}

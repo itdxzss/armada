@@ -1,0 +1,173 @@
+InnoDB		
+=====================================
+2026-09-19 04:07:32 281472900906752 INNODB MONITOR OUTPUT
+=====================================
+Per second averages calculated from the last 5 seconds
+-----------------
+BACKGROUND THREAD
+-----------------
+srv_master_thread loops: 159 srv_active, 0 srv_shutdown, 160 srv_idle
+srv_master_thread log flush and writes: 0
+----------
+SEMAPHORES
+----------
+OS WAIT ARRAY INFO: reservation count 661
+OS WAIT ARRAY INFO: signal count 666
+RW-shared spins 0, rounds 0, OS waits 0
+RW-excl spins 0, rounds 0, OS waits 0
+RW-sx spins 0, rounds 0, OS waits 0
+Spin rounds per wait: 0.00 RW-shared, 0.00 RW-excl, 0.00 RW-sx
+------------------------
+LATEST DETECTED DEADLOCK
+------------------------
+2026-09-19 04:07:31 281472552333056
+*** (1) TRANSACTION:
+TRANSACTION 8314, ACTIVE 0 sec inserting
+mysql tables in use 1, locked 1
+LOCK WAIT 4 lock struct(s), heap size 1128, 2 row lock(s), undo log entries 1
+MySQL thread id 1116, OS thread handle 281472904261376, query id 17053 localhost root update
+INSERT INTO wa_group_participant(tenant_id,group_id,pn_jid,lid_jid,phone,created_at,updated_at) VALUES(1,20,NULL,'213@lid','10001',1,1) ON DUPLICATE KEY UPDATE lid_jid=COALESCE(lid_jid,VALUES(lid_jid))
+
+*** (1) HOLDS THE LOCK(S):
+RECORD LOCKS space id 30 page no 6 n bits 72 index uq_wa_group_participant_lid of table `minimal_lid_fill_pn_repeatable`.`wa_group_participant` trx id 8314 lock_mode X locks gap before rec
+Record lock, heap no 2 PHYSICAL RECORD: n_fields 4; compact format; info bits 0
+ 0: len 8; hex 8000000000000001; asc         ;;
+ 1: len 8; hex 8000000000000014; asc         ;;
+ 2: len 7; hex 323134406c6964; asc 214@lid;;
+ 3: len 8; hex 800000000000000a; asc         ;;
+
+
+*** (1) WAITING FOR THIS LOCK TO BE GRANTED:
+RECORD LOCKS space id 30 page no 6 n bits 72 index uq_wa_group_participant_lid of table `minimal_lid_fill_pn_repeatable`.`wa_group_participant` trx id 8314 lock_mode X locks gap before rec insert intention waiting
+Record lock, heap no 2 PHYSICAL RECORD: n_fields 4; compact format; info bits 0
+ 0: len 8; hex 8000000000000001; asc         ;;
+ 1: len 8; hex 8000000000000014; asc         ;;
+ 2: len 7; hex 323134406c6964; asc 214@lid;;
+ 3: len 8; hex 800000000000000a; asc         ;;
+
+
+*** (2) TRANSACTION:
+TRANSACTION 8313, ACTIVE 0 sec updating or deleting
+mysql tables in use 1, locked 1
+LOCK WAIT 9 lock struct(s), heap size 1128, 6 row lock(s), undo log entries 1
+MySQL thread id 1115, OS thread handle 281472903143168, query id 17052 localhost root update
+INSERT INTO wa_group_participant(tenant_id,group_id,pn_jid,lid_jid,phone,created_at,updated_at) VALUES(1,20,NULL,'213@lid','10001',1,1) ON DUPLICATE KEY UPDATE lid_jid=COALESCE(lid_jid,VALUES(lid_jid))
+
+*** (2) HOLDS THE LOCK(S):
+RECORD LOCKS space id 30 page no 6 n bits 72 index uq_wa_group_participant_lid of table `minimal_lid_fill_pn_repeatable`.`wa_group_participant` trx id 8313 lock_mode X locks gap before rec
+Record lock, heap no 2 PHYSICAL RECORD: n_fields 4; compact format; info bits 0
+ 0: len 8; hex 8000000000000001; asc         ;;
+ 1: len 8; hex 8000000000000014; asc         ;;
+ 2: len 7; hex 323134406c6964; asc 214@lid;;
+ 3: len 8; hex 800000000000000a; asc         ;;
+
+
+*** (2) WAITING FOR THIS LOCK TO BE GRANTED:
+RECORD LOCKS space id 30 page no 6 n bits 72 index uq_wa_group_participant_lid of table `minimal_lid_fill_pn_repeatable`.`wa_group_participant` trx id 8313 lock_mode X locks gap before rec insert intention waiting
+Record lock, heap no 2 PHYSICAL RECORD: n_fields 4; compact format; info bits 0
+ 0: len 8; hex 8000000000000001; asc         ;;
+ 1: len 8; hex 8000000000000014; asc         ;;
+ 2: len 7; hex 323134406c6964; asc 214@lid;;
+ 3: len 8; hex 800000000000000a; asc         ;;
+
+*** WE ROLL BACK TRANSACTION (1)
+------------
+TRANSACTIONS
+------------
+Trx id counter 8316
+Purge done for trx's n:o < 8316 undo n:o < 0 state: running but idle
+History list length 56
+LIST OF TRANSACTIONS FOR EACH SESSION:
+---TRANSACTION 562948058165248, not started
+0 lock struct(s), heap size 1128, 0 row lock(s)
+---TRANSACTION 562948058164440, not started
+0 lock struct(s), heap size 1128, 0 row lock(s)
+---TRANSACTION 562948058163632, not started
+0 lock struct(s), heap size 1128, 0 row lock(s)
+---TRANSACTION 562948058162824, not started
+0 lock struct(s), heap size 1128, 0 row lock(s)
+--------
+FILE I/O
+--------
+I/O thread 0 state: waiting for completed aio requests (insert buffer thread)
+I/O thread 1 state: waiting for completed aio requests (read thread)
+I/O thread 2 state: waiting for completed aio requests (read thread)
+I/O thread 3 state: waiting for completed aio requests (read thread)
+I/O thread 4 state: waiting for completed aio requests (read thread)
+I/O thread 5 state: waiting for completed aio requests (read thread)
+I/O thread 6 state: waiting for completed aio requests (write thread)
+I/O thread 7 state: waiting for completed aio requests (write thread)
+I/O thread 8 state: waiting for completed aio requests (write thread)
+I/O thread 9 state: waiting for completed aio requests (write thread)
+Pending normal aio reads: [0, 0, 0, 0, 0] , aio writes: [0, 0, 0, 0] ,
+ ibuf aio reads:
+Pending flushes (fsync) log: 0; buffer pool: 0
+1130 OS file reads, 22566 OS file writes, 9363 OS fsyncs
+0.00 reads/s, 0 avg bytes/read, 187.78 writes/s, 68.67 fsyncs/s
+-------------------------------------
+INSERT BUFFER AND ADAPTIVE HASH INDEX
+-------------------------------------
+Ibuf: size 1, free list len 0, seg size 2, 0 merges
+merged operations:
+ insert 0, delete mark 0, delete 0
+discarded operations:
+ insert 0, delete mark 0, delete 0
+Hash table size 17393, node heap has 0 buffer(s)
+Hash table size 17393, node heap has 0 buffer(s)
+Hash table size 17393, node heap has 0 buffer(s)
+Hash table size 17393, node heap has 0 buffer(s)
+Hash table size 17393, node heap has 0 buffer(s)
+Hash table size 17393, node heap has 0 buffer(s)
+Hash table size 17393, node heap has 0 buffer(s)
+Hash table size 17393, node heap has 0 buffer(s)
+0.00 hash searches/s, 665.27 non-hash searches/s
+---
+LOG
+---
+Log capacity                 104857600
+Log capacity used            104857600
+Log sequence number          36950428
+Log buffer assigned up to    36950428
+Log buffer completed up to   36950428
+Log written up to            36950428
+Log flushed up to            36950428
+Added dirty pages up to      36950428
+Pages flushed up to          35331463
+Last checkpoint at           35331463
+Log minimum file id is       9
+Log maximum file id is       11
+12216 log i/o's done, 76.50 log i/o's/second
+----------------------
+BUFFER POOL AND MEMORY
+----------------------
+Total large memory allocated 0
+Dictionary memory allocated 1123600
+Buffer pool size   4096
+Free buffers       2240
+Database pages     1856
+Old database pages 665
+Modified db pages  78
+Pending reads      0
+Pending writes: LRU 0, flush list 0, single page 0
+Pages made young 4, not young 0
+0.00 youngs/s, 0.00 non-youngs/s
+Pages read 1102, created 754, written 9802
+0.00 reads/s, 3.45 creates/s, 96.29 writes/s
+Buffer pool hit rate 1000 / 1000, young-making rate 0 / 1000 not 0 / 1000
+Pages read ahead 0.00/s, evicted without access 0.00/s, Random read ahead 0.00/s
+LRU len: 1856, unzip_LRU len: 0
+I/O sum[0]:cur[392], unzip sum[0]:cur[0]
+--------------
+ROW OPERATIONS
+--------------
+0 queries inside InnoDB, 0 queries in queue
+0 read views open inside InnoDB
+Process ID=1, Main thread ID=281472518516480 , state=sleeping
+Number of rows inserted 972, updated 730, deleted 912, read 3450
+7.60 inserts/s, 7.40 updates/s, 7.20 deletes/s, 29.19 reads/s
+Number of system rows inserted 2948, updated 3131, deleted 1038, read 12148
+21.00 inserts/s, 20.00 updates/s, 0.00 deletes/s, 40.59 reads/s
+----------------------------
+END OF INNODB MONITOR OUTPUT
+============================
+

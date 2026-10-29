@@ -1,0 +1,58 @@
+{
+  "observed_utc": "2026-10-03T04:43:37.941988+00:00",
+  "task_id": 52,
+  "execution_id": 257,
+  "group_jid": "120363411384572796@g.us",
+  "query_actor": {
+    "account_id": 999,
+    "phone_tail": "2815",
+    "protocol": "ANDROID"
+  },
+  "http_status": 200,
+  "protocol_code": 0,
+  "error_type": null,
+  "readback": {
+    "group_id": "120363411384572796",
+    "subject": "NG验收-perf2-20261003-1230",
+    "description": "NEW_GROUP 真实业务验收｜perf2｜2026-10-03 12:30\n群名称和简介回读匹配并持久化后，才允许拉入受控料子。",
+    "member_count": 2,
+    "members": [
+      {
+        "phone_tail": "2815",
+        "type": "superadmin",
+        "roles": [
+          {
+            "account_id": 999,
+            "role_type": 4
+          }
+        ],
+        "material_ids": [],
+        "has_jid": true
+      },
+      {
+        "phone_tail": "4355",
+        "type": "",
+        "roles": [
+          {
+            "account_id": 1038,
+            "role_type": 1
+          }
+        ],
+        "material_ids": [],
+        "has_jid": true
+      }
+    ]
+  },
+  "comparison": {
+    "group_jid_matches": true,
+    "name_matches": true,
+    "description_matches": true,
+    "database_materials_match_authorized_sample": true,
+    "expected_material_count": 6,
+    "present_material_count": 0,
+    "all_controlled_materials_present": false,
+    "secondary_admin_present_and_admin": false
+  },
+  "profile_verified_at": 1791002326522,
+  "profile_verified_command_id": "cmd_5827c8d52eb14a5c9a51a1dac1c78e3c"
+}

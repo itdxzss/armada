@@ -1,0 +1,5 @@
+{"accountId":745,"no":45,"index":1,"stage":"REQUESTED","basis":"earlier sequential loop stopped before this member; previous attempted admins verified present","observedAt":"2026-09-14T02:42:45.933Z"}
+{"accountId":745,"no":45,"index":1,"stage":"PROTOCOL_ACK","observedAt":"2026-09-14T02:42:47.848Z"}
+{"accountId":745,"no":45,"index":2,"stage":"REQUESTED","basis":"earlier sequential loop stopped before this member; previous attempted admins verified present","observedAt":"2026-09-14T02:42:47.850Z"}
+{"accountId":745,"no":45,"index":2,"stage":"PROTOCOL_ACK","observedAt":"2026-09-14T02:42:49.859Z"}
+{"accountId":745,"no":45,"stage":"VERIFIED","missingIndexes":[],"observedAt":"2026-09-14T02:42:51.524Z"}

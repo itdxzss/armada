@@ -1,0 +1,42 @@
+test1 NEW_GROUP 备用角色只读复核
+结论：找到在线且本次检查未发现活跃/暂停/计划占用的备用建群组155与拉手组220，但149次管理员组存在真实RUNNING任务成员占用，不能组成完整3角色配置。受控料子仍缺失。本次未创建任务/群，未改库、部署、释放占用或调整账号。
+时间均为Asia/Shanghai，北京时间2026-10-03；原始txt记录UTC，以下已+8小时。
+
+一、分组与当前状态
+12:04:44汇总tenant=1的全部25个未删除分组名称、备注、账号数、DB在线数、限制汇总（alternatives-inventory.txt）。
+明确排除110组（不能建群且account_state=6）、135组（禁止拉群）、145组（候选状态6）；148/149/219按运行或草稿占用排除；未扩大使用221等其他分组。
+155“沙特建群号”，无禁用角色备注，2个Web账号。12:10:01 DB均account_state=2/login_state=1，risk/cooldown/pulling/mute等限制字段空；
+- 1609，尾6650，Web：12:10:02.216协议state=ONLINE，wsOpen=true，connectionField=open，lastPingAckAt=12:09:56.585，consecutivePingFailures=0。
+- 1610，尾2107，Web：12:10:05.241协议state=ONLINE，wsOpen=true，connectionField=open，lastPingAckAt=12:09:49.508，consecutivePingFailures=0。
+220“926”，无禁用角色备注，2个Android账号。12:11:04 DB均account_state=2/login_state=1，无风险/冷却/拉人/禁言有效限制；
+- 1792，尾7120，Android：12:11:05.156 GET /ws/v1/auth/status/{phone}，HTTP200，Code=0，Data='账号 [REDACTED] 在线'。
+- 1795，尾5205，Android：12:11:05.161 同上，Data明确在线。
+源码whatsapp-server-feature-android-zhuan/api/service/login.go:689–701核对：上述成功Data仅wsApp.LoginStatus()==define.Online分支返回；不是单凭HTTP200判定。
+前端按组选号，若以后执行仍必须从实际group_account执行记录确认选中的账号；以上不保证下一时刻状态或实际建群能力。
+
+二、149管理员组不能使用
+12:10:02 normal_group_creation_task127仍RUNNING，分组引用：admin_account_group_id=148、secondary_admin_account_group_id=149、member_account_group_id=145。
+12:11:05进一步查到normal_group_creation_item_secondary_admin：1572有2行task127/PENDING/PENDING；1574有1行task127/PENDING/PENDING，父任务RUNNING。
+因此不仅存在分组配置引用，原候选1572/1574也已有该任务真实次管理员角色行。未释放或修改。
+- 1572，尾2185：12:04:44未出现在DB login_state=1的列表（该时刻未采协议状态，不能补称协议离线）；12:10:01及12:11:04 DB已是2/1，12:11:05.137协议Data明确在线。
+- 1574，尾8336：12:10:01及12:11:04 DB2/1，12:11:05.150协议Data明确在线。
+在线不取消占用，两者仍排除。
+
+三、155/220跨业务与组引用检查
+12:07:21首次，12:08:46补入刚上线1609等重复核对。覆盖pull_task_group_account含occupied/released/occupancy_key及执行manual_paused；pull_task_standard_setting四角色组；marketing_account_occupancy及marketing任务组；group_pull_marketing_execution与builder组；hyperlink round account/usage及动态筛选；feed/contact账号和动态筛选；join账号及草稿组引用；normal_group_creation creator/member/secondary/anchor角色及三分组引用；group_creation_marketing账号和分组；mutual contact actor/target和左右组；script账号及分组。
+155的历史pull角色均COMPLETED/ENDED，occupied_at和occupancy_key为空；normal task140 FAILED、141 PARTIAL为终态，未发现PENDING/RUNNING任务引用155。1609在140存在PENDING的历史次管理行，但父任务FAILED，不当作当前运行占用。
+220未发现这些业务占用记录或任务分组引用。
+12:10:02全量活跃/计划组定义复核：join79 DRAFT group219，[1755,1719]；join80 RUNNING group208；普通建群127涉及148/149/145，其他运行普通建群组没有155/220；pull活跃组定义无结果；script状态0/1/2无结果。
+12:11:05按源码真实MarketingTaskStatus(1待启动/2发送/5暂停)再次查询，无结果。不能将5暂停误当终态。
+当前contact暂停task1动态filter group148；hyperlink运行task27动态filter group217；feed活跃/暂停/计划查询无结果，均不涉及155/220。
+本轮中曾把hyperlink_task_strategy表名写错，SELECT报1146；已读源码修正为hyperlink_strategy(id=task.hyperlink_strategy_id)后成功重跑，错误未掩盖。
+
+四、证据
+alternatives-inventory.txt：全分组与首份在线名单。
+alternatives-occupancy-final.txt：最终跨业务角色及动态筛选查询（含每个SECTION，无结果显示空白）。
+alternatives-group-definitions.txt：所有活动普通建群、join草稿/运行、pull、script组引用。
+alternatives-protocol-final.txt：6个候选12:10 DB快照与Web真实status含连接证据；Android此文件尚仅抽取Code，最终语义见下一文件。
+alternatives-protocol-android-evidence.txt：12:11 Android Data脱敏在线值、149实际占用角色行、营销1/2/5复查。
+同名.py保存本次只读查询/协议请求代码，数据库密码和协议key仅从远端配置在进程内存读取；未保存或打印凭据、完整号码。
+
+本次只给出两个备用分组的预检查证据；没有确认完整3角色可用组合，没有受控料子，没有任务ID、群JID或业务成功证据。test1本次业务验收仍受阻。

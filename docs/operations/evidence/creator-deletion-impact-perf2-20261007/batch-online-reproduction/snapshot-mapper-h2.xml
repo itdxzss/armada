@@ -1,0 +1,8 @@
+  <update id="updateProxySnapshotsInternal">
+    UPDATE account_state SET
+      truth_ip = CASE account_id <foreach collection="rows" item="row"> WHEN #{row.accountId} THEN #{row.truthIp} </foreach> END,
+      proxy_country = CASE account_id <foreach collection="rows" item="row"> WHEN #{row.accountId} THEN #{row.proxyCountry} </foreach> END,
+      proxy_source = CASE account_id <foreach collection="rows" item="row"> WHEN #{row.accountId} THEN #{row.proxySource} </foreach> END,
+      updated_at = CASE account_id <foreach collection="rows" item="row"> WHEN #{row.accountId} THEN #{row.updatedAt} </foreach> END
+    WHERE account_id IN <foreach collection="rows" item="row" open="(" separator="," close=")">#{row.accountId}</foreach>
+  </update>

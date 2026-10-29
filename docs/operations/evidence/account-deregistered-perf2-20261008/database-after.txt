@@ -1,0 +1,14 @@
+checked_at	db
+2026-10-08 15:44:13	armada_perf
+id	tenant_id	phone_tail	dispatched_at	deleted_at	account_state	login_state	desired_login_state	lifecycle	completed_at
+2761	1	1265	NULL	NULL	9	2	2	DELETED	1791350241499
+2764	1	1646	NULL	NULL	9	2	2	DELETED	1791348204543
+2770	1	2909	NULL	NULL	2	2	1	RESERVED	NULL
+2772	1	7364	NULL	NULL	9	2	2	DELETED	1791340307122
+2783	1	8151	NULL	NULL	9	2	2	DELETED	1791440963402
+confirmed_not_deregistered
+0
+installed_rank	version	description	success
+217	214	account deregistered state	1
+216	213	pull task simple new group	1
+

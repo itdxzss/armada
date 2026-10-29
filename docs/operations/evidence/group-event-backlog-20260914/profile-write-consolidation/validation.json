@@ -1,0 +1,217 @@
+{
+  "scope": "Local only; group profile persistence within a single event transaction",
+  "environment": "Local MySQL 8.4.8 Testcontainers and H2; production mapper XML, tenant interceptor and Spring transactions",
+  "mavenExitCode": 0,
+  "totals": {
+    "tests": 101,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "sqlComparison": {
+    "fixture": "15 participants, 15 controlled accounts; boundary, creation time, full members and controlled bindings; excludes creator, metadata patch, invite and task completion",
+    "previousCallOrderStatements": 20,
+    "consolidatedStatements": 12,
+    "reductionPercent": 40,
+    "participantUpsertsBefore": 2,
+    "participantUpsertsAfter": 1,
+    "bindingsRetained": 15,
+    "groupPrimaryLockStatementsAfter": 1,
+    "onlineThroughputMeasured": false
+  },
+  "tests": [
+    {
+      "class": "AccountGroupControlledBatchMySqlTest",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "cases": [
+        "oneProfileWritesItsParticipantsOnlyOnce",
+        "newerProfilesKeepEveryAccountBindingAndUpdateRolesIncludingOwner",
+        "participantJoinsUseTheCompleteTenantGroupPnIndex",
+        "preciseExitAndRejoinCycleSurviveInterleavedProfileReports",
+        "lockedBatchReadBlocksParticipantWriteUntilTheTransactionCommits",
+        "sameTimeSnapshotVersionAndEmptyCompleteListKeepTheirExistingMeaning",
+        "lateExitKeepsRejoinedCycleAndRollbackKeepsAllBindingsAndIdentity",
+        "wholeServiceBatchUsesBoundedStatementsAndPreservesAllFifteenBindingsAndRoles",
+        "rejectedOldSnapshotStillRepairsMissingControlledMemberWithoutRegressingNewerFacts",
+        "lockedContextCannotBeReusedUnderAnotherTenant",
+        "profileAndBindingsRollBackTogether",
+        "linkedPnAndLidStillMergeBeforeControlledBindingIsWritten"
+      ]
+    },
+    {
+      "class": "GroupProfileReportedSinkAdapterTest",
+      "tests": 22,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "cases": [
+        "missingCreationTimeStillLocksGroupBeforeProfileAndMembers",
+        "missingCreationTimeIsPassedThroughAsUnobserved",
+        "profileReportRegistersGroupLinkSoTheGroupListShowsItImmediately",
+        "completeMemberWithNonNumericPhoneDoesNotAppendPnSuffix",
+        "groupLinkRegistrationFailureDoesNotDropTheProfileFacts",
+        "phoneAlreadyInJidFormIsNotSuffixedTwice",
+        "activeInviteFetchFailureDoesNotDropTheProfileFacts",
+        "completeMembersAreWrittenAsFullSnapshot",
+        "profileFieldsUseSnapshotSourceSoEventsWinAtSameTime",
+        "controlledAccountBindingsAreWrittenFromTheMemberList",
+        "missingCreatorPhoneSkipsTheCompatibilityWrite",
+        "missingMembersMeanProfileOnly",
+        "completeEmptyMembersStillClearsDepartedMembers",
+        "profileReportedTriggersActiveInviteCodeFetch",
+        "bindingReconcileFailureDoesNotDropTheProfileFacts",
+        "incompleteMembersAreSkippedToAvoidFalseDeparture",
+        "missingGroupLinkSkipsActiveInviteFetch",
+        "completeProfileDoesNotRunSingleAccountPersistenceForEveryMember",
+        "completeMemberWithPnPhoneDoesNotAppendSuffixTwice",
+        "creatorPhoneIsPersistedSoTheListShowsCreatorAndFlag",
+        "creationTimeIsPersistedSoTheListCanShowIt",
+        "tenantContextIsClearedAfterHandling"
+      ]
+    },
+    {
+      "class": "AccountGroupCurrentSnapshotPersistenceImplTest",
+      "tests": 17,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "cases": [
+        "postCutoffEvidenceWinsBindingClassificationDuringInitialBaseline",
+        "delayedPreciseAddRepairsActiveSinceWithoutReplacingNewerInGroupObservation",
+        "identityMergeDoesNotBlindRetryWhenRowsSplitAfterInitialLockCheck",
+        "participantSnapshotDoesNotBlindRetryAfterConcurrentIdentitySplit",
+        "incompleteFirstSnapshotKeepsBaselinePending",
+        "participantRoleObservationWritesCurrentParticipantWithoutBinding",
+        "staleSnapshotCannotReAddNewerExitedRelationship",
+        "preciseSelfAddRepairsMissingMembershipActiveSince",
+        "firstSnapshotAfterPreciseAddIsAddedButEstablishedReplayIsNot",
+        "controlledAddReturnsTrueOnlyForAcceptedInGroupTransition",
+        "identityMergeRejectsRowsThatAlreadyPointAtDifferentCompleteIdentities",
+        "identityMergeCollapsesExistingPnAndLidRowsBeforeCompletingIdentity",
+        "preciseSelfAddDoesNotOverwriteExistingMembershipActiveSince",
+        "nonAddObservationDoesNotInventMissingMembershipActiveSince",
+        "delayedPreciseAddCannotRepairAfterNewerExit",
+        "acceptedExitClearsCurrentMembershipCycleBeforeBindingUpsert",
+        "controlledRepeatedAddDoesNotReturnAnotherTransition"
+      ]
+    },
+    {
+      "class": "AccountGroupControlledBatchPersistenceTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "cases": [
+        "mixedDelayedFactsKeepExistingTransitionRulesAndPassGuardedExitsBeforeBindings",
+        "emptyObservationsNeedNoTenantOrDatabaseCalls",
+        "missingAccountInTenantFilteredContextsFailsBeforeGroupLockOrAnyWrite",
+        "twoHundredAndOneAccountsAddOnlyASecondBoundedParticipantAndBindingBatch",
+        "fifteenAccountsKeepIndividualRolesWithOneGroupLockAndOneWritePerTable"
+      ]
+    },
+    {
+      "class": "AccountGroupControlledBatchMapperH2Test",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "cases": [
+        "oneAndFifteenAccountsExecuteTheSameThreeNewMapperStatements",
+        "fifteenAccountsReadContextsAndWriteOwnBindingsWithoutLosingIdentity",
+        "explicitTenantFiltersAccountContextGroupParticipantsAndBindings",
+        "upsertRetainsBaselineAndEarliestCycleAndDoesNotAcceptStaleFacts",
+        "failedTransactionRollsBackEveryBindingInTheBatch",
+        "acceptedExitsClearOnlyTheirOwnAccountGroupSourceAndTimestamp",
+        "batchPreservesMillisecondTimestampsAndLargeAccountIdentifiers"
+      ]
+    },
+    {
+      "class": "AccountGroupCurrentSnapshotMapperH2Test",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "cases": [
+        "identityMergeSelectsBothRowsThenRepointsDeletesAndCompletesCanonicalIdentity",
+        "selfMembershipQueryReturnsPreciseMembershipActiveSinceForCurrentTenant",
+        "selfBindingUpsertAllowsActiveSinceRepairOnlyWhileParticipantIsInGroup"
+      ]
+    },
+    {
+      "class": "GroupParticipantObservationServiceImplTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "cases": [
+        "unresolvedLidDoesNotCreateControlledBinding",
+        "winningRoleFactUpdatesCurrentParticipantAndControlledBinding",
+        "reconcileControlledMembershipsReturnsOnlyNewInGroupTransitions",
+        "reconcileControlledJoinsDetectsTransitionBeforeGenericAddIsWritten",
+        "reconcileControlledMembershipsDedupesCandidatesAndUpdatesBinding",
+        "reconcileControlledMembershipsWithoutMatchingRowsDoesNothing"
+      ]
+    },
+    {
+      "class": "ProtocolGroupParticipantChangedSinkAdapterTest",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "cases": [
+        "mapsAndroidDemoteWithLidAndPhoneToUnifiedObservation",
+        "staleProtocolBindingDoesNotWriteMemberFact",
+        "androidAddKeepsWgp2SourceType",
+        "removeWithoutOperatorStaysUnknown",
+        "modifyMergesBothIdentitiesWithoutTouchingPresenceOrRole",
+        "removeWhereOperatorIsTheTargetIsRecordedAsLeft",
+        "batchRemoveCannotAttributeOperatorAndStaysUnknown",
+        "repeatedAddWithoutNewControlledTransitionDoesNotEnterMarketing",
+        "webAddWritesJoinFactAndReconcilesControlledMemberships",
+        "modifyWithOnlyOneIdentityHasNothingToMerge",
+        "removeByAnotherAdminIsRecordedAsRemoved",
+        "removeWithIncomparableIdentityFormsStaysUnknown"
+      ]
+    },
+    {
+      "class": "ProtocolGroupProfileReportedConsumerTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "cases": [
+        "membersCompleteDefaultsToFalseWhenAbsent",
+        "allowsProfileWithoutMembers",
+        "skipsInvalidProfileFieldsAndKeepsIndependentFacts",
+        "rejectsCompleteFlagWithEmptyMemberList",
+        "acceptsLegacyCreatedAtDuringRollingProtocolUpgrade",
+        "rejectsMemberWithoutAnyIdentity",
+        "prefersCanonicalGroupCreatedAtWhenBothFieldsArePresent",
+        "acceptsProfileWithMembersAndCompleteFlag"
+      ]
+    },
+    {
+      "class": "AccountGroupCurrentSnapshotPersistenceMySqlTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "cases": [
+        "sameTimeWinningSnapshotVersionAlsoWinsParticipantPresenceAndRole",
+        "metadataSnapshotLocksGroupBeforeProfile",
+        "profileReportWithoutCreatedAtLocksGroupBeforeProfileAndMembers",
+        "completeMetadataSnapshotUpdatesOnlyAcceptedProfileFields",
+        "olderCompleteSnapshotCannotRollBackNewerHeaderOrExplicitDeparture",
+        "completeParticipantSnapshotUpdatesRolesHeaderAndMarksMissingParticipants",
+        "reportAndParticipantFactsUseExplicitPrimaryGroupLockBeforeJoinedOrParticipantWrite",
+        "phoneGuardMergesExistingPnAndLidBeforeFullSnapshotAndKeepsFacts",
+        "reportJoinDeparturePreciseAndFullSnapshotSerializeOnSameGroupRow"
+      ]
+    }
+  ],
+  "log": "/tmp/group241-diag/profile-consolidation-validation.log",
+  "deployed": false
+}

@@ -1,0 +1,19 @@
+Reproduction: python3 /private/tmp/creator-deletion-frontend-h2/run-probe.py
+Classpath: cached local surefire java.class.path; no dependency download
+Inputs: current source XML loaded via FileSystemResource; synthetic in-memory H2 only
+
+
+exit_code=0
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.7 
+phase=RESERVED countPage=2 statsOffline=2 batchPreviewMatched=2 activeIdentityCount=2 phoneExportCount=2 staleOnlineCallableCount=1
+phase=DELETING countPage=2 statsOffline=2 batchPreviewMatched=2 activeIdentityCount=1 phoneExportCount=2 staleOnlineCallableCount=1
+phase=DELETED countPage=2 statsOffline=2 batchPreviewMatched=2 activeIdentityCount=1 phoneExportCount=2 staleOnlineCallableCount=1
+DELETED export candidates=1 export.reserve=1 account_state=EXPORTED (actual production Mapper + tenant plugin)
+samePhoneDifferentTenantDifferentProtocol listCount=1 activeIdentityCount=0
+PASS: synthetic in-memory H2; no live database or protocol accessed
+
+
+exit_code=0

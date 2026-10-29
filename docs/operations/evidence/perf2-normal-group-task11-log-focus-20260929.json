@@ -1,0 +1,526 @@
+{
+  "timezone": "UTC",
+  "files": [
+    "whatsapp-server-2026-09-16.log",
+    "whatsapp-server-2026-09-17.log",
+    "whatsapp-server-2026-09-18.log",
+    "whatsapp-server-2026-09-19.log",
+    "whatsapp-server-2026-09-20.log",
+    "whatsapp-server-2026-09-21.log",
+    "whatsapp-server-2026-09-22.log",
+    "whatsapp-server-2026-09-23.log",
+    "whatsapp-server-2026-09-24.log",
+    "whatsapp-server-2026-09-25.log",
+    "whatsapp-server-2026-09-26.log",
+    "whatsapp-server-2026-09-27.log",
+    "whatsapp-server-2026-09-28.log",
+    "whatsapp-server-2026-09-29.log"
+  ],
+  "stats": [
+    {
+      "date": "2026-09-17",
+      "category": "native_login",
+      "count": 482,
+      "first": "2026-09-17 08:14:06.827",
+      "last": "2026-09-17 23:12:15.964",
+      "stored_key_counts": {},
+      "reason_counts": {},
+      "account_count": 54
+    },
+    {
+      "date": "2026-09-17",
+      "category": "missing_key",
+      "count": 2519,
+      "first": "2026-09-17 08:14:11.936",
+      "last": "2026-09-17 19:02:33.050",
+      "stored_key_counts": {
+        "0": 2519
+      },
+      "reason_counts": {},
+      "account_count": 49
+    },
+    {
+      "date": "2026-09-17",
+      "category": "primary_recovery_unavailable",
+      "count": 2519,
+      "first": "2026-09-17 08:14:11.936",
+      "last": "2026-09-17 19:02:33.050",
+      "stored_key_counts": {},
+      "reason_counts": {},
+      "account_count": 49
+    },
+    {
+      "date": "2026-09-17",
+      "category": "contact_sync_result",
+      "count": 2519,
+      "first": "2026-09-17 08:14:11.937",
+      "last": "2026-09-17 19:02:33.050",
+      "stored_key_counts": {},
+      "reason_counts": {},
+      "account_count": 49
+    },
+    {
+      "date": "2026-09-17",
+      "category": "contact_not_ready",
+      "count": 69,
+      "first": "2026-09-17 09:50:13.268",
+      "last": "2026-09-17 13:36:39.096",
+      "stored_key_counts": {},
+      "reason_counts": {
+        "no_sync_key": 69
+      },
+      "account_count": 5
+    },
+    {
+      "date": "2026-09-17",
+      "category": "contact_save_failed",
+      "count": 69,
+      "first": "2026-09-17 09:50:13.268",
+      "last": "2026-09-17 13:36:39.096",
+      "stored_key_counts": {},
+      "reason_counts": {
+        "APP_STATE_NOT_READY": 69
+      },
+      "account_count": 5
+    },
+    {
+      "date": "2026-09-18",
+      "category": "native_login",
+      "count": 1004,
+      "first": "2026-09-18 01:51:58.718",
+      "last": "2026-09-18 23:53:12.282",
+      "stored_key_counts": {},
+      "reason_counts": {},
+      "account_count": 54
+    },
+    {
+      "date": "2026-09-18",
+      "category": "missing_key",
+      "count": 4093,
+      "first": "2026-09-18 05:48:26.054",
+      "last": "2026-09-18 23:59:44.771",
+      "stored_key_counts": {
+        "0": 4093
+      },
+      "reason_counts": {},
+      "account_count": 49
+    },
+    {
+      "date": "2026-09-18",
+      "category": "primary_recovery_unavailable",
+      "count": 4093,
+      "first": "2026-09-18 05:48:26.055",
+      "last": "2026-09-18 23:59:44.771",
+      "stored_key_counts": {},
+      "reason_counts": {},
+      "account_count": 49
+    },
+    {
+      "date": "2026-09-18",
+      "category": "contact_sync_result",
+      "count": 4093,
+      "first": "2026-09-18 05:48:26.059",
+      "last": "2026-09-18 23:59:44.772",
+      "stored_key_counts": {},
+      "reason_counts": {},
+      "account_count": 49
+    },
+    {
+      "date": "2026-09-18",
+      "category": "contact_not_ready",
+      "count": 46,
+      "first": "2026-09-18 06:14:21.928",
+      "last": "2026-09-18 11:11:41.729",
+      "stored_key_counts": {},
+      "reason_counts": {
+        "no_sync_key": 46
+      },
+      "account_count": 11
+    },
+    {
+      "date": "2026-09-18",
+      "category": "contact_save_failed",
+      "count": 46,
+      "first": "2026-09-18 06:14:21.928",
+      "last": "2026-09-18 11:11:41.729",
+      "stored_key_counts": {},
+      "reason_counts": {
+        "APP_STATE_NOT_READY": 46
+      },
+      "account_count": 11
+    },
+    {
+      "date": "2026-09-19",
+      "category": "missing_key",
+      "count": 2310,
+      "first": "2026-09-19 00:00:34.126",
+      "last": "2026-09-19 23:57:32.742",
+      "stored_key_counts": {
+        "0": 2310
+      },
+      "reason_counts": {},
+      "account_count": 49
+    },
+    {
+      "date": "2026-09-19",
+      "category": "primary_recovery_unavailable",
+      "count": 2310,
+      "first": "2026-09-19 00:00:34.126",
+      "last": "2026-09-19 23:57:32.742",
+      "stored_key_counts": {},
+      "reason_counts": {},
+      "account_count": 49
+    },
+    {
+      "date": "2026-09-19",
+      "category": "contact_sync_result",
+      "count": 2310,
+      "first": "2026-09-19 00:00:34.127",
+      "last": "2026-09-19 23:57:32.743",
+      "stored_key_counts": {},
+      "reason_counts": {},
+      "account_count": 49
+    },
+    {
+      "date": "2026-09-19",
+      "category": "native_login",
+      "count": 273,
+      "first": "2026-09-19 00:08:05.889",
+      "last": "2026-09-19 21:11:54.738",
+      "stored_key_counts": {},
+      "reason_counts": {},
+      "account_count": 54
+    },
+    {
+      "date": "2026-09-20",
+      "category": "missing_key",
+      "count": 2116,
+      "first": "2026-09-20 00:12:34.750",
+      "last": "2026-09-20 23:59:59.713",
+      "stored_key_counts": {
+        "0": 2116
+      },
+      "reason_counts": {},
+      "account_count": 49
+    },
+    {
+      "date": "2026-09-20",
+      "category": "primary_recovery_unavailable",
+      "count": 2116,
+      "first": "2026-09-20 00:12:34.750",
+      "last": "2026-09-20 23:59:59.713",
+      "stored_key_counts": {},
+      "reason_counts": {},
+      "account_count": 49
+    },
+    {
+      "date": "2026-09-20",
+      "category": "contact_sync_result",
+      "count": 2116,
+      "first": "2026-09-20 00:12:34.751",
+      "last": "2026-09-20 23:59:59.714",
+      "stored_key_counts": {},
+      "reason_counts": {},
+      "account_count": 49
+    },
+    {
+      "date": "2026-09-20",
+      "category": "native_login",
+      "count": 189,
+      "first": "2026-09-20 00:42:39.505",
+      "last": "2026-09-20 23:59:40.225",
+      "stored_key_counts": {},
+      "reason_counts": {},
+      "account_count": 54
+    },
+    {
+      "date": "2026-09-21",
+      "category": "missing_key",
+      "count": 2703,
+      "first": "2026-09-21 00:00:01.879",
+      "last": "2026-09-21 17:19:25.562",
+      "stored_key_counts": {
+        "0": 2703
+      },
+      "reason_counts": {},
+      "account_count": 49
+    },
+    {
+      "date": "2026-09-21",
+      "category": "primary_recovery_unavailable",
+      "count": 2703,
+      "first": "2026-09-21 00:00:01.879",
+      "last": "2026-09-21 17:19:25.562",
+      "stored_key_counts": {},
+      "reason_counts": {},
+      "account_count": 49
+    },
+    {
+      "date": "2026-09-21",
+      "category": "contact_sync_result",
+      "count": 2703,
+      "first": "2026-09-21 00:00:01.880",
+      "last": "2026-09-21 17:19:25.562",
+      "stored_key_counts": {},
+      "reason_counts": {},
+      "account_count": 49
+    },
+    {
+      "date": "2026-09-21",
+      "category": "native_login",
+      "count": 288,
+      "first": "2026-09-21 00:12:42.309",
+      "last": "2026-09-21 17:11:13.483",
+      "stored_key_counts": {},
+      "reason_counts": {},
+      "account_count": 54
+    },
+    {
+      "date": "2026-09-24",
+      "category": "native_login",
+      "count": 68,
+      "first": "2026-09-24 05:51:29.587",
+      "last": "2026-09-24 06:45:22.664",
+      "stored_key_counts": {},
+      "reason_counts": {},
+      "account_count": 54
+    },
+    {
+      "date": "2026-09-24",
+      "category": "missing_key",
+      "count": 217,
+      "first": "2026-09-24 05:51:33.560",
+      "last": "2026-09-24 06:48:05.111",
+      "stored_key_counts": {
+        "0": 217
+      },
+      "reason_counts": {},
+      "account_count": 49
+    },
+    {
+      "date": "2026-09-24",
+      "category": "primary_recovery_unavailable",
+      "count": 217,
+      "first": "2026-09-24 05:51:33.560",
+      "last": "2026-09-24 06:48:05.111",
+      "stored_key_counts": {},
+      "reason_counts": {},
+      "account_count": 49
+    },
+    {
+      "date": "2026-09-24",
+      "category": "contact_sync_result",
+      "count": 217,
+      "first": "2026-09-24 05:51:33.561",
+      "last": "2026-09-24 06:48:05.112",
+      "stored_key_counts": {},
+      "reason_counts": {},
+      "account_count": 49
+    },
+    {
+      "date": "2026-09-28",
+      "category": "native_login",
+      "count": 320,
+      "first": "2026-09-28 08:02:51.115",
+      "last": "2026-09-28 23:54:43.966",
+      "stored_key_counts": {},
+      "reason_counts": {},
+      "account_count": 54
+    },
+    {
+      "date": "2026-09-28",
+      "category": "missing_key",
+      "count": 3553,
+      "first": "2026-09-28 08:02:56.249",
+      "last": "2026-09-28 23:59:59.304",
+      "stored_key_counts": {
+        "0": 3553
+      },
+      "reason_counts": {},
+      "account_count": 49
+    },
+    {
+      "date": "2026-09-28",
+      "category": "primary_recovery_unavailable",
+      "count": 3553,
+      "first": "2026-09-28 08:02:56.249",
+      "last": "2026-09-28 23:59:59.304",
+      "stored_key_counts": {},
+      "reason_counts": {},
+      "account_count": 49
+    },
+    {
+      "date": "2026-09-28",
+      "category": "contact_sync_result",
+      "count": 3553,
+      "first": "2026-09-28 08:02:56.258",
+      "last": "2026-09-28 23:59:59.305",
+      "stored_key_counts": {},
+      "reason_counts": {},
+      "account_count": 49
+    },
+    {
+      "date": "2026-09-29",
+      "category": "missing_key",
+      "count": 7916,
+      "first": "2026-09-29 00:00:34.963",
+      "last": "2026-09-29 15:35:58.739",
+      "stored_key_counts": {
+        "0": 7916
+      },
+      "reason_counts": {},
+      "account_count": 49
+    },
+    {
+      "date": "2026-09-29",
+      "category": "primary_recovery_unavailable",
+      "count": 7916,
+      "first": "2026-09-29 00:00:34.963",
+      "last": "2026-09-29 15:35:58.739",
+      "stored_key_counts": {},
+      "reason_counts": {},
+      "account_count": 49
+    },
+    {
+      "date": "2026-09-29",
+      "category": "contact_sync_result",
+      "count": 7916,
+      "first": "2026-09-29 00:00:34.964",
+      "last": "2026-09-29 15:35:58.740",
+      "stored_key_counts": {},
+      "reason_counts": {},
+      "account_count": 49
+    },
+    {
+      "date": "2026-09-29",
+      "category": "native_login",
+      "count": 1108,
+      "first": "2026-09-29 00:07:42.684",
+      "last": "2026-09-29 15:36:10.652",
+      "stored_key_counts": {},
+      "reason_counts": {},
+      "account_count": 54
+    },
+    {
+      "date": "2026-09-29",
+      "category": "contact_not_ready",
+      "count": 888,
+      "first": "2026-09-29 14:59:53.564",
+      "last": "2026-09-29 15:20:50.359",
+      "stored_key_counts": {},
+      "reason_counts": {
+        "no_sync_key": 888
+      },
+      "account_count": 53
+    }
+  ],
+  "samples": {
+    "native_login": {
+      "id": 2078,
+      "time": "2026-09-17 08:14:06.827",
+      "values": {}
+    },
+    "missing_key": {
+      "id": 2086,
+      "time": "2026-09-17 08:14:11.936",
+      "values": {
+        "device": 0,
+        "recordCount": 1,
+        "decodedCount": 0,
+        "skippedCount": 1,
+        "collection": "critical_unblock_low",
+        "stored_key_count": 0,
+        "missing_key_count": 1
+      }
+    },
+    "primary_recovery_unavailable": {
+      "id": 2086,
+      "time": "2026-09-17 08:14:11.936",
+      "values": {}
+    },
+    "contact_sync_result": {
+      "id": 2086,
+      "time": "2026-09-17 08:14:11.937",
+      "values": {
+        "recordCount": 1,
+        "contactMutationCount": 0,
+        "collection": "critical_unblock_low"
+      }
+    },
+    "contact_not_ready": {
+      "id": 2083,
+      "time": "2026-09-17 09:50:13.268",
+      "values": {}
+    },
+    "contact_save_failed": {
+      "id": 2083,
+      "time": "2026-09-17 09:50:13.268",
+      "values": {
+        "reasonCode": "APP_STATE_NOT_READY"
+      }
+    }
+  },
+  "creators": {
+    "2612": {
+      "native_login": {
+        "first": "2026-09-17 17:01:30.404",
+        "last": "2026-09-29 15:35:42.990",
+        "count": 61
+      },
+      "contact_not_ready": {
+        "first": "2026-09-29 15:00:00.029",
+        "last": "2026-09-29 15:19:33.742",
+        "count": 81
+      }
+    },
+    "2611": {
+      "native_login": {
+        "first": "2026-09-17 17:01:30.405",
+        "last": "2026-09-29 13:31:40.850",
+        "count": 116
+      },
+      "contact_not_ready": {
+        "first": "2026-09-29 14:59:54.000",
+        "last": "2026-09-29 15:19:35.017",
+        "count": 121
+      }
+    },
+    "2614": {
+      "native_login": {
+        "first": "2026-09-17 17:01:30.429",
+        "last": "2026-09-29 15:36:10.652",
+        "count": 575
+      },
+      "contact_not_ready": {
+        "first": "2026-09-29 15:00:00.810",
+        "last": "2026-09-29 15:19:39.352",
+        "count": 81
+      }
+    },
+    "2629": {
+      "native_login": {
+        "first": "2026-09-17 17:01:30.448",
+        "last": "2026-09-29 14:09:44.701",
+        "count": 49
+      },
+      "contact_not_ready": {
+        "first": "2026-09-29 15:01:11.937",
+        "last": "2026-09-29 15:20:46.999",
+        "count": 81
+      }
+    },
+    "2630": {
+      "native_login": {
+        "first": "2026-09-17 17:01:30.451",
+        "last": "2026-09-29 15:27:38.345",
+        "count": 37
+      },
+      "contact_not_ready": {
+        "first": "2026-09-29 15:00:31.965",
+        "last": "2026-09-29 15:20:04.193",
+        "count": 78
+      }
+    }
+  },
+  "global_key_store_events": {}
+}

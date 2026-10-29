@@ -1,0 +1,1 @@
+{"section": "create_idempotency", "observed_utc": "2026-10-03T04:55:05.709059+00:00", "data": {"operation_id": "ptgc:1:659", "exists": true, "status": "PROCESSING", "pttl": 2591428194, "has_result": false, "result": {}}}

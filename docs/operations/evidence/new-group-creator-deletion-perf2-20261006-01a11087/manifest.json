@@ -1,0 +1,188 @@
+{
+  "generatedAt": "2026-10-06T09:55:53.972711+00:00",
+  "environment": "perf2",
+  "businessTasksCreated": 0,
+  "accountDeletionRequestsSent": 0,
+  "browserSessionClosed": true,
+  "files": [
+    {
+      "path": "queries/business-observation.sql",
+      "bytes": 15565,
+      "sha256": "43da395e4c12abd850593d55ff13ddfaec655e5dddc17a3938558737245f94eb"
+    },
+    {
+      "path": "queries/candidates.sql",
+      "bytes": 15065,
+      "sha256": "105cc00029bd53ca16d149811e0ca743b1ad912d2d13d706e91534db6b923ebf"
+    },
+    {
+      "path": "queries/preflight.sql",
+      "bytes": 1627,
+      "sha256": "9d1d063c9d4ab96ae94a73604a5e33c6106e5ba64b66fb121833c5e25ac22a73"
+    },
+    {
+      "path": "queries/selected-live-readiness-identities.sql",
+      "bytes": 805,
+      "sha256": "7e0c6388e4b9a3be91e78fbded26fe1152a86dd64941e7b6f9fc83f4f4441def"
+    },
+    {
+      "path": "queries/web-candidate-and-baseline.sql",
+      "bytes": 15557,
+      "sha256": "21e8512c522d95aa0f751ae7eb1192f455000b1e8e7153634191ea1be1c2de58"
+    },
+    {
+      "path": "runtime/account-candidates.tsv",
+      "bytes": 4048,
+      "sha256": "436634ef244e777eae3154a415ebf6f380811131c7943b62736a8f7e17daec56"
+    },
+    {
+      "path": "runtime/android-build.json",
+      "bytes": 1138,
+      "sha256": "13368047bba4488765e0e219604625e6cd4230dd4a5e5d0084454453455f44ca"
+    },
+    {
+      "path": "runtime/android-database.json",
+      "bytes": 346,
+      "sha256": "f2fb63a0f44acc3552c6c3b03669d675900d1818580a4d7108738b67b06796b7"
+    },
+    {
+      "path": "runtime/backend-jar-inspection.json",
+      "bytes": 1522,
+      "sha256": "5e7ff9ddfcc97d8937f664cf42276a8f23d426b1f1f90a79eaca3b0f70f0b413"
+    },
+    {
+      "path": "runtime/concurrent-worktree-status.json",
+      "bytes": 307,
+      "sha256": "d9ed8d3d26cc553fb1d0b18f33e045ce7c00a53ae56163a7ec0feac17fc4bde2"
+    },
+    {
+      "path": "runtime/current-draft-context.txt",
+      "bytes": 259,
+      "sha256": "8209b4132e22082db31e392f939c0ab7b3ce000f0163dced70364b1b14ecf44e"
+    },
+    {
+      "path": "runtime/database-preflight.tsv",
+      "bytes": 10430,
+      "sha256": "bc092ebf3e30c017805cd61db5574cb73682449dc26b2d9b0913643637b9b438"
+    },
+    {
+      "path": "runtime/frontend-artifact.json",
+      "bytes": 1012,
+      "sha256": "2a8f3bf4869ddcb3069c4121c3775497062af38ef63f50f1e8664e00c5b4fa4e"
+    },
+    {
+      "path": "runtime/live-preflight.json",
+      "bytes": 2208,
+      "sha256": "e651610d96e1e8073423544f9106c9c01baca43d9c3e7fc142ff93db37cf02e7"
+    },
+    {
+      "path": "runtime/local-repositories.json",
+      "bytes": 17186,
+      "sha256": "3255086a2c3e8e79462a5558341b94817380f98d872a684d4ea0aa2acd607487"
+    },
+    {
+      "path": "runtime/online-approval-rejection.json",
+      "bytes": 468,
+      "sha256": "3daecda7462b9a4ec26a17ad0949169a2f0f6e3c9be0e3635020e7057c99dce5"
+    },
+    {
+      "path": "runtime/role-authorization.json",
+      "bytes": 497,
+      "sha256": "6e7537d135e425b3459339d2509543dff024c608d00849b030032d1efd6498a1"
+    },
+    {
+      "path": "runtime/selected-live-readiness.json",
+      "bytes": 7406,
+      "sha256": "05f57b192699c1e3b4ea550f7da819ed74ea1b7220301f605ddcea976937e402"
+    },
+    {
+      "path": "runtime/ui-control-prepared.txt",
+      "bytes": 1048,
+      "sha256": "9ad1a59232a226e4d049caf11601c3e704e270e78c5478fa12213738db18872c"
+    },
+    {
+      "path": "runtime/ui-new-group-default.txt",
+      "bytes": 361,
+      "sha256": "1349b8115578ec71a9d4ec11f243644a8957876997594ba4bd98c785b12d69ad"
+    },
+    {
+      "path": "runtime/ui-switch-independence.txt",
+      "bytes": 361,
+      "sha256": "ae21d8bb8fe0935484ea21c7a70603029a44aaf7a115feb441fe6b5d27f13a05"
+    },
+    {
+      "path": "runtime/web-candidate-and-baseline.tsv",
+      "bytes": 2046,
+      "sha256": "da44f3bffb53a1fa90f162db5a657a8aeaf25bf87e0788f38ae6f7ebed9f7694"
+    },
+    {
+      "path": "runtime/web-protocol-live.json",
+      "bytes": 10960,
+      "sha256": "9b6ecbe2360778ed4863268f7788b550e30fb96c8fd195243ab700cb9d0b62d5"
+    },
+    {
+      "path": "screenshots/control-form-prepared.png",
+      "bytes": 206801,
+      "sha256": "5ac67abdf87c99144c847b05410542773bac6d1f89cb7551fbdc68a1888a3f70"
+    },
+    {
+      "path": "screenshots/new-group-default.png",
+      "bytes": 220011,
+      "sha256": "39d3b1c29ea6a269b9a3252247294db909772d4761560d0b6ba8baed107532a6"
+    },
+    {
+      "path": "screenshots/perf2-login-required.png",
+      "bytes": 70051,
+      "sha256": "f00050f75bfdc3c9a7fe4a0fcfb66f765f3aa0e678cac542dacb3979c9612773"
+    },
+    {
+      "path": "scripts/perf2-android-db-preflight.py",
+      "bytes": 1971,
+      "sha256": "106e3d6ff01d2bfe8d0dc67fb0694ae0e6b6b6917b410e14af648a56c69271bf"
+    },
+    {
+      "path": "scripts/perf2-api-init-01a11087.js",
+      "bytes": 966,
+      "sha256": "6262049119ee555279e7f06ad5c2029e70fe90a46372d0fcf2656539a4e89ea3"
+    },
+    {
+      "path": "scripts/perf2-bsk-safe-01a11087.py",
+      "bytes": 523,
+      "sha256": "f82921375bc5973574533d941a5bc95ef39df84a3c9447d40fc2bf16f538390e"
+    },
+    {
+      "path": "scripts/perf2-deletion-preflight.py",
+      "bytes": 3474,
+      "sha256": "bf71aaa4ec5d4610b5e3124f0edba5755fb736e908efce8482a02bbc2ad315e7"
+    },
+    {
+      "path": "scripts/perf2-online-selected-01a11087.js",
+      "bytes": 347,
+      "sha256": "9761fce9cebc5fb90b1ef0e38d1032760e16f3ee0899e8bab86cea3772ca796e"
+    },
+    {
+      "path": "scripts/perf2-page-exec-01a11087.py",
+      "bytes": 726,
+      "sha256": "6bcfb92d434e33745f8beab062ade382c82bea33775e219142a8809b5a2910b7"
+    },
+    {
+      "path": "scripts/perf2-stuck-task-read.py",
+      "bytes": 2214,
+      "sha256": "e8ea79e38d0d2e6bf1a5ea7c1ab61d441cd603334af897ed14162344370923cb"
+    },
+    {
+      "path": "scripts/selected-live-readiness.py",
+      "bytes": 5246,
+      "sha256": "20d0d51fe145d1819daa5dedb4ece7a3bf055252942952788cacb75815c6e816"
+    },
+    {
+      "path": "验收报告.md",
+      "bytes": 17167,
+      "sha256": "a37ce064c8b96fff3f4a901f032c8a19628930002fbf6cf9f00cf55078935ed5"
+    }
+  ],
+  "browserSessionClosureEvidence": "Explicit session stop voqx after cancelling unsubmitted form",
+  "latestUserAuthorizedSelection": true,
+  "accountOnlineRequestsExecuted": 0,
+  "latestBlocker": "explicit permission for normal account connection recovery after automatic approval rejection"
+}

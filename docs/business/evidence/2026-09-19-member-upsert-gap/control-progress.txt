@@ -1,0 +1,20 @@
+CONTROL no_lid_assignment REPEATABLE READ
+no_lid_assignment_pn_repeatable 25 {'success': 25}
+no_lid_assignment_pn_repeatable 50 {'success': 50}
+no_lid_assignment_pn_repeatable 75 {'success': 75}
+no_lid_assignment_pn_repeatable 100 {'success': 100}
+CONTROL primary_update REPEATABLE READ
+primary_update_pn_repeatable 25 {'success': 25}
+primary_update_pn_repeatable 50 {'success': 50}
+primary_update_pn_repeatable 75 {'success': 75}
+primary_update_pn_repeatable 100 {'success': 100}
+CONTROL primary_update READ COMMITTED
+primary_update_pn_read 25 {'success': 25}
+primary_update_pn_read 50 {'success': 50}
+primary_update_pn_read 75 {'success': 75}
+primary_update_pn_read 100 {'success': 100}
+CONTROL minimal_lid_fill REPEATABLE READ
+minimal_lid_fill_pn_repeatable 25 {'success': 23, 'matching_gap_cycle': 2}
+minimal_lid_fill_pn_repeatable 50 {'success': 46, 'matching_gap_cycle': 4}
+minimal_lid_fill_pn_repeatable 75 {'success': 65, 'matching_gap_cycle': 10}
+minimal_lid_fill_pn_repeatable 100 {'success': 88, 'matching_gap_cycle': 12}

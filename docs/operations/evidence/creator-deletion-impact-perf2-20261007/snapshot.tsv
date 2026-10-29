@@ -1,0 +1,127 @@
+observed_utc
+2026-10-06 23:24:41.877
+lifecycle	n	oldest_created_utc	max_unchanged_seconds
+RESERVED	2	2026-10-06 11:35:19.1010	42562
+status	deletion_result_status	n	oldest_created_utc
+0	NULL	2	2026-10-06 11:35:19.1010
+account_id	tenant_id	task_id	group_execution_id	lifecycle	has_operation	reserved_utc	updated_utc	age_seconds	platform_deleted	account_group_id	protocol_id	account_state	login_state	desired_login_state	state_source	dispatched	lease_until	task_status	task_deleted	execution_status	stage	create_step	reason_code	execution_locked	lock_expires_at	deletion_status	attempts	deletion_result_status	deletion_reason	submitted_utc
+2755	1	64	303	RESERVED	0	2026-10-06 11:35:19.1010	2026-10-06 11:35:19.1010	42563	1	702	ANDROID	2	2	2	ACCOUNT_DELETED	0	NULL	ENDED	0	6	9	2	GROUP_CREATE_FAILED	0	NULL	0	0	NULL	NULL	NULL
+2757	1	65	305	RESERVED	0	2026-10-06 14:44:39.1910	2026-10-06 14:44:39.1910	31203	0	702	ANDROID	2	1	1	STATE_CHANGED	0	NULL	ENDED	0	6	9	4	GROUP_PROFILE_VERIFICATION_FAILED	0	NULL	0	0	NULL	NULL	NULL
+id	platform_deleted	protocol_id	device_os	account_group_id	dispatched	lease_until	account_state	login_state	desired_login_state	state_source	lifecycle	task_id	group_execution_id
+1038	1	ANDROID	1	658	0	NULL	5	2	2	ACCOUNT_DELETED	NULL	NULL	NULL
+1736	1	ANDROID	1	658	0	NULL	5	2	2	ACCOUNT_DELETED	NULL	NULL	NULL
+2755	1	ANDROID	1	702	0	NULL	2	2	2	ACCOUNT_DELETED	RESERVED	64	303
+2757	0	ANDROID	1	702	0	NULL	2	1	1	STATE_CHANGED	RESERVED	65	305
+id	status	primary_stage	blocking_reason	deleted	is_creator_delete_after_takeover	finished_utc	execution_id	execution_status	stage	create_step	reason_code	locked	lock_expires_utc
+64	ENDED	NULL	人工结束	0	1	2026-10-06 13:33:30.2170	303	6	9	2	GROUP_CREATE_FAILED	0	NULL
+64	ENDED	NULL	人工结束	0	1	2026-10-06 13:33:30.2170	304	6	9	1	NULL	0	NULL
+65	ENDED	NULL	人工结束	0	1	2026-10-06 14:53:02.4500	305	6	9	4	GROUP_PROFILE_VERIFICATION_FAILED	0	NULL
+lifecycle	aliases	active_aliases	tenants	tasks
+RESERVED	2	1	1	2
+id	reserved_account_id	lifecycle	protocol_id	platform_deleted
+2755	2755	RESERVED	ANDROID	1
+2757	2757	RESERVED	ANDROID	0
+TABLE_NAME	COLUMN_NAME	DATA_TYPE
+account_credential	id	bigint
+account_credential	tenant_id	bigint
+account_credential	account_id	bigint
+account_credential	ws_phone	varchar
+account_credential	cred_format	tinyint
+account_credential	creds_json	text
+account_credential	proxy_session_id	varchar
+account_credential	proxy_retain_until	bigint
+account_credential	created_at	bigint
+account_credential	updated_at	bigint
+account_credential	deleted_at	bigint
+account_credential	is_active	tinyint
+account_online_attempt_log	id	bigint
+account_online_attempt_log	tenant_id	bigint
+account_online_attempt_log	account_id	bigint
+account_online_attempt_log	protocol_account_id	varchar
+account_online_attempt_log	online_attempt_id	varchar
+account_online_attempt_log	previous_online_attempt_id	varchar
+account_online_attempt_log	command_id	varchar
+account_online_attempt_log	batch_id	varchar
+account_online_attempt_log	proxy_id	bigint
+account_online_attempt_log	source	varchar
+account_online_attempt_log	from_state	varchar
+account_online_attempt_log	to_state	varchar
+account_online_attempt_log	diagnosis_code	varchar
+account_online_attempt_log	diagnosis_class	varchar
+account_online_attempt_log	raw_code	int
+account_online_attempt_log	raw_reason	varchar
+account_online_attempt_log	recoverability	varchar
+account_online_attempt_log	action_taken	varchar
+account_online_attempt_log	worker_id	varchar
+account_online_attempt_log	evidence_json	json
+account_online_attempt_log	occurred_at	datetime
+account_online_attempt_log	created_at	datetime
+contact_friend_task_account	id	bigint
+contact_friend_task_account	tenant_id	bigint
+contact_friend_task_account	task_id	bigint
+contact_friend_task_account	account_id	bigint
+contact_friend_task_account	account_phone_snapshot	varchar
+contact_friend_task_account	account_status_snapshot	varchar
+contact_friend_task_account	need_send_num	int
+contact_friend_task_account	sent_num	int
+contact_friend_task_account	fail_num	int
+contact_friend_task_account	state	varchar
+contact_friend_task_account	contact_synced_at	bigint
+contact_friend_task_account	created_at	bigint
+contact_friend_task_account	updated_at	bigint
+contact_friend_task_account	stop_reason	varchar
+feed_task_account	id	bigint
+feed_task_account	tenant_id	bigint
+feed_task_account	task_id	bigint
+feed_task_account	account_id	bigint
+feed_task_account	account_phone_snapshot	varchar
+feed_task_account	send_status	varchar
+feed_task_account	retry_num	int
+feed_task_account	retry_max	int
+feed_task_account	command_id	varchar
+feed_task_account	protocol_message_id	varchar
+feed_task_account	send_at	bigint
+feed_task_account	success_at	bigint
+feed_task_account	failed_at	bigint
+feed_task_account	fail_code	varchar
+feed_task_account	fail_reason	varchar
+feed_task_account	round_no	bigint
+feed_task_account	created_at	bigint
+feed_task_account	updated_at	bigint
+marketing_account_occupancy	id	bigint
+marketing_account_occupancy	tenant_id	bigint
+marketing_account_occupancy	account_id	bigint
+marketing_account_occupancy	marketing_task_id	bigint
+marketing_account_occupancy	occupied_at	bigint
+marketing_account_occupancy	created_at	bigint
+marketing_account_occupancy	updated_at	bigint
+pull_task_group_account	id	bigint
+pull_task_group_account	tenant_id	bigint
+pull_task_group_account	task_id	bigint
+pull_task_group_account	group_execution_id	bigint
+pull_task_group_account	account_id	bigint
+pull_task_group_account	account_phone	varchar
+pull_task_group_account	role_type	tinyint
+pull_task_group_account	role_seq	int
+pull_task_group_account	source_type	tinyint
+pull_task_group_account	selection_mode	tinyint
+pull_task_group_account	entry_mode	tinyint
+pull_task_group_account	membership_status	tinyint
+pull_task_group_account	membership_failure_count	bigint
+pull_task_group_account	active_pull_attempt_id	bigint
+pull_task_group_account	last_puller_group_account_id	bigint
+pull_task_group_account	membership_reason_code	varchar
+pull_task_group_account	membership_reason_message	varchar
+pull_task_group_account	membership_result_at	bigint
+pull_task_group_account	joined_at	bigint
+pull_task_group_account	pull_call_id	bigint
+pull_task_group_account	admin_status	tinyint
+pull_task_group_account	availability_status	tinyint
+pull_task_group_account	unavailable_reason_code	varchar
+pull_task_group_account	cooldown_until	bigint
+pull_task_group_account	occupied_at	bigint
+pull_task_group_account	released_at	bigint
+pull_task_group_account	created_at	bigint
+pull_task_group_account	updated_at	bigint
+pull_task_group_account	occupancy_key	bigint
+

@@ -1,0 +1,8 @@
+{
+  "changed": [
+    "BOOT-INF/classes/com/armada/task/service/impl/PullTaskNewGroupModeValidator.class"
+  ],
+  "added": [],
+  "removed": [],
+  "unchanged_files": 3244
+}

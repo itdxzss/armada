@@ -1,0 +1,130 @@
+{
+  "environment": "perf2 / 第二套环境",
+  "tested_at_china": "2026-10-03 12:45:35–12:49:07 +08:00",
+  "task_ids": [
+    20,
+    21,
+    22,
+    23,
+    24
+  ],
+  "source_file": "A8-XA749.txt",
+  "source_unique_numbers": 201,
+  "random_selected_recipients": 20,
+  "planned_recipients_per_sender": 4,
+  "sender_ids": [
+    2583,
+    2585,
+    2660,
+    2662,
+    2663
+  ],
+  "message_type": "3 / 普通按钮超链",
+  "content": {
+    "title": "Connection test",
+    "content": "Test message. No action needed.",
+    "button": "Open example",
+    "url": "https://example.com",
+    "short_link": false
+  },
+  "message_interval_seconds": 2,
+  "outcome": {
+    "database_observed_utc": "2026-10-03 04:49:07.216",
+    "protocol_first_event_utc": "2026-10-03 04:45:32.848",
+    "protocol_last_event_utc": "2026-10-03 04:49:06.151",
+    "database_recipients": 20,
+    "prepared_message_ids": 13,
+    "ack_success": 2,
+    "ack_timeout": 11,
+    "late_ack": 0,
+    "ack_rejected": 0,
+    "database_send_status_counts": {
+      "3": 2,
+      "7": 2,
+      "6": 16
+    },
+    "database_fail_code_counts": {
+      "NULL": 2,
+      "UNREGISTERED": 2,
+      "TASK_STOPPED": 5,
+      "SEND_RESULT_TIMEOUT": 11
+    },
+    "scope": "Only task IDs 20-24 from database rows; messageID must exactly match protocol_message_id. prepared time precedes actual socket dispatch; deltas are not exact socket RTT. No ACK seen means absent from supplied log window only."
+  },
+  "accounts": [
+    {
+      "account_id": 2583,
+      "task_ids": [
+        20
+      ],
+      "prepared": 1,
+      "accepted": 1,
+      "timeout": 0,
+      "late_ack": 0
+    },
+    {
+      "account_id": 2585,
+      "task_ids": [
+        21
+      ],
+      "prepared": 1,
+      "accepted": 1,
+      "timeout": 0,
+      "late_ack": 0
+    },
+    {
+      "account_id": 2660,
+      "task_ids": [
+        22
+      ],
+      "prepared": 4,
+      "accepted": 0,
+      "timeout": 4,
+      "late_ack": 0
+    },
+    {
+      "account_id": 2662,
+      "task_ids": [
+        23
+      ],
+      "prepared": 3,
+      "accepted": 0,
+      "timeout": 3,
+      "late_ack": 0
+    },
+    {
+      "account_id": 2663,
+      "task_ids": [
+        24
+      ],
+      "prepared": 4,
+      "accepted": 0,
+      "timeout": 4,
+      "late_ack": 0
+    }
+  ],
+  "sender_state_after": {
+    "2583": "BANNED / FORBIDDEN",
+    "2585": "BANNED / FORBIDDEN",
+    "2660": "ONLINE",
+    "2662": "ONLINE",
+    "2663": "ONLINE"
+  },
+  "all_tasks_stopped": true,
+  "task_stop_utc": [
+    "04:46:11.919",
+    "04:46:13.008",
+    "04:46:14.090",
+    "04:46:15.239",
+    "04:46:16.425"
+  ],
+  "delivered": 0,
+  "read": 0,
+  "conclusion": "已复现 Android 超链 8 秒 ACK 超时。3 个商业号生成的 11 条消息均超时；2 个人号各 1 条 ACK 成功，随后账号转 BANNED。到观察截止无迟到 ACK。",
+  "limits": [
+    "本轮随机 20 人中 2 人未注册；5 人在账号异常后停止，最终 TASK_STOPPED，未生成协议 messageID。",
+    "ACK 不代表送达或已读。",
+    "账号类型与结果相关，但当前样本不能单独证明账号类型是根因。",
+    "没有修改配置、发布代码或扩大测试。"
+  ]
+}

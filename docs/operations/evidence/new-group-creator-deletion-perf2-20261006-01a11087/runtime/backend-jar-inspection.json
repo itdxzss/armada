@@ -1,0 +1,17 @@
+{
+  "observedAt": "2026-10-06T09:31:02.821769+00:00",
+  "source": "Read running container armada-backend:/app/app.jar over SSH; inspect ZIP in memory",
+  "androidBaseUrl": "http://172.31.40.84:8001",
+  "jarSha256": "99c77f6ba6eb6354eea60835d9cf8daf961dc452cef21cabb8590f79442e6ce4",
+  "gitPropertiesPresent": false,
+  "buildInfoPropertiesPresent": false,
+  "exactGitCommitProven": false,
+  "jarEntries": [
+    {"path":"BOOT-INF/classes/db/migration/V212__account_creator_deletion_identity_index.sql","sha256":"52304fb72efa6034440672400fbcbb39ee994bcb18ce8c452277e465021847e0","matchesCurrentSource":true},
+    {"path":"BOOT-INF/classes/db/migration/V211__new_group_creator_deletion.sql","sha256":"94e908e83412eb2d3b5d5ad83b84445d277f6f05feef25d63add5c222f4d0baa","matchesCurrentSource":true},
+    {"path":"BOOT-INF/classes/com/armada/platform/protocol/backend/android/AndroidCreatorAccountDeletionAdapter.class","sha256":"37bc18845494b11098984c1c1cf994a5db5f2a3682e6aff88a69603842588d0a"},
+    {"path":"BOOT-INF/classes/com/armada/task/scheduler/PullTaskCreatorDeletionTransactionService.class","sha256":"673b587dcc896d5cb94e8c3b5f10e94b2c02c069982dab4407c42b3aa852fe11"},
+    {"path":"BOOT-INF/classes/com/armada/task/scheduler/PullTaskCreatorDeletionProcessor.class","sha256":"588ae0dc76ca6c02a7d6aa4fedb2bbed8b996082cf0b48c301f3334734ad65bb"},
+    {"path":"BOOT-INF/classes/com/armada/task/scheduler/PullTaskCreatorDeletionProof.class","sha256":"4063e300f7ea6ac6030ca9ca6df11000624a2dbfe38c73c818df3c2ceb4ebae0"}
+  ]
+}

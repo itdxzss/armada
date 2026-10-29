@@ -1,0 +1,36 @@
+test1 真实 NEW_GROUP 验收：受阻，未通过完整业务闭环
+取证日期 2026-10-03；以下展示北京时间，JSONL observed_utc 为 UTC。
+
+任务：taskId218 / executionId659 / tenant1 / create_operation_id=ptgc:1:659。
+实际执行选中建群人1609（Web，尾6650，分组155）；次管理员1610（Web，尾2107，分组155）。两者不同已由role记录确认。尚未走到拉手分配，不能将分组220候选1792/1795当作实际拉手。
+
+表单/DB一致：groupName=NG验收-test1-20261003-1233；简介为下两行（中间真实LF）：
+NEW_GROUP 真实业务验收｜test1｜2026-10-03 12:33
+群名称和简介回读匹配并持久化后，才允许拉入受控料子。
+creator_group155 / manager_group155 / puller_group220 / puller_count1 / initial_station0 / station_per_call0 / early_call0 / pull_count1–3 / interval10–15秒；资料开启且BEFORE_PULL；filenameAsGroupName=false。
+用户授权 A8-XA748 文件的前6料子由主代理通过页面导入；材料数据库ID132283–132288。此证据包仅保留尾号，未复制原始号码文件。
+
+关键时序与证据：
+1. 12:29–12:30跨业务、暂停和计划分组引用重新核查；155/220无其他活动任务冲突。148/149因normal127排除，219因join79排除。见precheck-report及occupancy/groups。
+2. 12:40:22/25只读Web状态确认1609/1610 ONLINE、wsOpen=true；Android1792/1795只读Code0且Data明确在线；12:41:23再查占用，排除本任务218后无外部冲突，任务命令数0。
+3. 12:40:26 baseline：WAIT_START，无roles/actions/pull_calls，无groupJid/资料凭证。
+4. 12:45:33.321 task.started_at；12:45:33.332 execution.started_at。
+5. 协议12:45:33.967 forward POST /v1/groups/create -> w2；traceId=945e02ffb85b48caa8cf6785a21209ba。
+6. 后端12:45:34.495收到1609诊断STALE_HALF_OPEN_WS/raw408；12:45:34.505 ONLINE->STALE，semantic=RECONNECTING。
+7. 协议12:45:36.867返回503 ACCOUNT_UNAVAILABLE，reason=account_not_online,state=STALE；12:45:36.868 master转发结果503。并非建群成功回执。
+8. 12:45:59 DB已manual_paused=1，GROUP_CREATE_RESULT_UNCONFIRMED，reason_message=建群结果未知，已停止自动重建，请人工核对：建群结果无法确认。groupJid仍NULL；create_attempt_count0不能解释为“未调用过协议”（已存在明确HTTP调用）。
+9. 12:52:45只读创建者参与群列表返回12群，测试群名匹配0；没有得到可供metadata回读的groupJid。该列表结果不能单独证明没有创建真实群。
+10. 12:55:05单key Redis GET/PTTL：ptgc:1:659存在，status=PROCESSING、has_result=false，TTL2591428194ms。首次只读探测报RuntimeError，第二次只读成功；未改Redis键。
+11. 12:56:52最终DB：任务仍EXECUTING，execution659 manual_paused=1/create_step2/stage9，groupJidNULL；actions[]、pull_calls[]，6条材料pull_status0；profile_verified_at及profile_verified_command_id均NULL。没有资料commandId，没有第一笔料子命令。
+
+本次实际结论：
+- 创建请求当刻Web账号STALE，业务停在取得群JID之前；UNKNOWN安全暂停且没有自动重复建群推进证据。
+- 没有群JID、简介真实回读、资料核验凭证、真实次管权限、拉手选择和料子入群证据；不能宣称本次群名/简介回读 gate 的真实成功路径已验证。
+- 本次Web建群“调用路径”有覆盖，Web成功建群未覆盖。没有人为制造离线、暂停、修改回执、恢复或重试任务。
+
+当前源码解释（非另行部署验证）：
+armada-protocol protocol-layer/src/routes/groups.ts:384–388 先operationGate，再getSocket，然后才sock.groupCreate；account-manager.ts:812–818 在线守卫在state!=ONLINE抛AccountUnavailableError，error/error-handler.ts:29–35 wire code=ACCOUNT_UNAVAILABLE。
+armada ProtocolHttpExecutor.java:323–333把wire code按枚举valueOf；当前ProtocolErrorCode无ACCOUNT_UNAVAILABLE，故映射UNKNOWN。IdempotentGroupCreatePort.java:23–27仅将BAD_REQUEST/ACCOUNT_NOT_ONLINE/UNSUPPORTED_BACKEND/ACCOUNT_REACHOUT_RESTRICTED列为确定未创建；:60–80将其他错误改为GROUP_CREATE_RESULT_UNCONFIRMED并保留PROCESSING。此源码解释与本次503、Redis PROCESSING、暂停结果一致；未读取或篡改真实回执。
+最小修复建议：针对Web建群的明确前置拒绝 ACCOUNT_UNAVAILABLE + reason=account_not_online（且确认抛出在groupCreate前）映射到ACCOUNT_NOT_ONLINE，增加HTTP错误映射和幂等清理的既有测试覆盖；不要把所有503/UNKNOWN都改为确定失败，也不要删除本次UNKNOWN的幂等键或自动重建。当前任务继续保持原状态等待明确处置授权。
+
+与本地测试分开：前轮当前源码16类135测试全过的证据在 /private/tmp/armada-newgroup-accept-20261003/backend/；本报告没有新增测试或修改源码。该测试通过不能替代本次真实业务失败/受阻证据。

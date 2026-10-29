@@ -1,0 +1,10 @@
+{
+  "observedAt": "2026-09-14T03:35:33.366090+00:00",
+  "exitCode": 0,
+  "deadLetterEndOffsets": [
+    "armada.protocol.group.events.v1.DLT:0:3317",
+    "armada.protocol.group.events.v1.DLT:1:5342",
+    "armada.protocol.group.events.v1.DLT:2:4395"
+  ],
+  "deadlockLogLinesSinceRestart": 0
+}

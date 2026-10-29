@@ -1,0 +1,46 @@
+{
+  "observedUtc": "2026-10-06T23:29:29.853629+00:00",
+  "readsOnlyCachedStatus": true,
+  "rows": [
+    {
+      "accountId": 1038,
+      "code": 1003,
+      "cacheReportsOnline": false,
+      "responseKeys": [
+        "Code",
+        "Data",
+        "Msg"
+      ]
+    },
+    {
+      "accountId": 1736,
+      "code": 1003,
+      "cacheReportsOnline": false,
+      "responseKeys": [
+        "Code",
+        "Data",
+        "Msg"
+      ]
+    },
+    {
+      "accountId": 2755,
+      "code": 1003,
+      "cacheReportsOnline": false,
+      "responseKeys": [
+        "Code",
+        "Data",
+        "Msg"
+      ]
+    },
+    {
+      "accountId": 2757,
+      "code": 1003,
+      "cacheReportsOnline": false,
+      "responseKeys": [
+        "Code",
+        "Data",
+        "Msg"
+      ]
+    }
+  ]
+}

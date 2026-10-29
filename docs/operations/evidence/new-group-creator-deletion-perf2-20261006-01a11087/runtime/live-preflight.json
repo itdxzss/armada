@@ -1,0 +1,58 @@
+{
+  "observedAt": "2026-10-06T09:29:17.187855+00:00",
+  "environment": "perf2",
+  "secretMatch": true,
+  "runtime": [
+    {
+      "kind": "backend",
+      "observedAt": "2026-10-06T09:29:16.717843+00:00",
+      "container": "armada-backend",
+      "image": "sha256:0d65e43b58d390a1c9f4118e1b3edcf33d2cf638ce340eb1aed6e080e522f910",
+      "created": "2026-10-06T08:51:02.12088915Z",
+      "startedAt": "2026-10-06T08:51:13.169703538Z",
+      "status": "running",
+      "restartCount": 0,
+      "composeProject": "armada-perf",
+      "secretPresent": true,
+      "secretMin32Bytes": true,
+      "databaseSchema": "armada_perf",
+      "androidBaseUrl": null,
+      "runtimeArtifactSha256": "99c77f6ba6eb6354eea60835d9cf8daf961dc452cef21cabb8590f79442e6ce4  /app/app.jar",
+      "frontendIndexSha256": "7b92b67352388c4981d4906b3f10c3feffe40911f50db5293b232dbdffb642d7  /usr/share/nginx/html/saas/index.html",
+      "queryTools": {
+        "mysql": null,
+        "mariadb": null,
+        "go": null,
+        "python3": "/usr/bin/python3",
+        "docker": "/usr/bin/docker"
+      },
+      "androidBaseUrlNote": "Initial probe read ANDROID_BASE_URL, which is not the deployed key. Correct PROTOCOL_ANDROID_BASE_URL independently verified in backend-jar-inspection.json."
+    },
+    {
+      "kind": "android",
+      "observedAt": "2026-10-06T09:29:16.344189+00:00",
+      "container": "whatsapp-android-zhuan",
+      "image": "sha256:9246aa92b3d254ad531b73894a746db8e3409188fb7a84105a2f2b8121a9e3ae",
+      "created": "2026-10-06T08:48:03.192019321Z",
+      "startedAt": "2026-10-06T08:48:14.514508812Z",
+      "status": "running",
+      "restartCount": 0,
+      "composeProject": "whatsapp-android-zhuan-perf",
+      "secretPresent": true,
+      "secretMin32Bytes": true,
+      "runtimeArtifactSha256": "8a2db87c4ef645a2d43b79b842d68163d8dbb4ae76a32d8a0127eb33e9934fff  /app/whatsapp-server",
+      "configFiles": [
+        "prod_configs.example.toml",
+        "prod_configs.toml"
+      ],
+      "databaseNamesInConfig": {
+        "prod_configs.example.toml": [
+          "whatsapp_android_zhuan_test"
+        ],
+        "prod_configs.toml": [
+          "whatsapp_android_zhuan_perf"
+        ]
+      }
+    }
+  ]
+}

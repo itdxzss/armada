@@ -1,0 +1,23 @@
+record_type	id	tenant_id	deleted_at	dispatched_at
+backup_account	1038	1	NULL	NULL
+backup_account	1736	1	NULL	NULL
+record_type	account_id	account_state	login_state	desired_login_state	state_source	invalidated_at	last_state_sync_time	updated_at
+backup_state	1038	2	2	2	STATE_CHANGED	NULL	1791294446714	1791294447748
+backup_state	1736	2	2	2	STATE_CHANGED	NULL	1791294445796	1791294446835
+result	allowed	repaired_at
+repair_guard	0	1791294517166
+result	affected
+repair_accounts_stopped	0
+result	affected
+repair_pending_commands_canceled	0
+result	affected
+repair_accounts_soft_deleted	0
+result	affected
+repair_proxies_restored	0
+result	id	deleted_at	account_state	login_state	desired_login_state	state_source
+final_accounts	1038	NULL	2	2	2	STATE_CHANGED
+final_accounts	1736	NULL	2	2	2	STATE_CHANGED
+result	status	n
+final_proxy_inventory	1	251
+final_proxy_inventory	2	1
+final_proxy_inventory	3	748

@@ -1,0 +1,23 @@
+evidence_section	observed_at	database_schema
+candidate_query_context	2026-10-06 17:35:35.190	armada_perf
+evidence_section	tenant_id	account_id	owner_user_id	protocol_id	device_os	account_group_id	group_name	marketing_occupancy_type	marketing_occupancy_task_id	deleted_at	login_state	desired_login_state	account_state	state_source	phone_tail	identity_hash	protocol_route_present	cred_formats	identity_alias_count	deletion_lifecycle	deletion_task_id	deletion_execution_id	backend_primary_android_shape
+candidate_summary	1	2187	NULL	WEB	1	697	拉群测试管理员分组	NULL	NULL	NULL	2	1	2	STATE_CHANGED	***9867	712a6996ffb983899e91b8d882d154a855f42d449db625ab59ca268bcdf9caa7	1	2	1	NULL	NULL	NULL	0
+evidence_section	tenant_id	account_id	has_active_dependency
+mapper_dependencies_excluding_future_script_bindings	1	2187	0
+evidence_section	candidate_account_id	alias_tenant_id	alias_account_id	protocol_id	device_os	deleted_at	account_group_id	group_name	login_state	desired_login_state	deletion_lifecycle	deletion_task_id	deletion_execution_id
+identity_aliases	2187	1	2187	WEB	1	NULL	697	拉群测试管理员分组	2	1	NULL	NULL	NULL
+evidence_section	tenant_id	account_id	owner_user_id	protocol_id	device_os	account_group_id	group_name	marketing_occupancy_type	marketing_occupancy_task_id	deleted_at	login_state	desired_login_state	account_state	state_source	phone_tail	identity_hash	protocol_route_present	cred_formats	identity_alias_count	deletion_lifecycle	deletion_task_id	deletion_execution_id	backend_primary_android_shape
+all_undeleted_web_route_candidates	1	2187	NULL	WEB	1	697	拉群测试管理员分组	NULL	NULL	NULL	2	1	2	STATE_CHANGED	***9867	712a6996ffb983899e91b8d882d154a855f42d449db625ab59ca268bcdf9caa7	1	2	1	NULL	NULL	NULL	0
+creator_deletion_ledger_count
+0
+account_lifecycle_ledger_count
+0
+max_task_id	task_count
+63	63
+account_group_id	group_name	undeleted_accounts	db_online_accounts
+250	白子仓库	124	85
+658	协议测试9-30-1	21	19
+682	10-4mol-3	1	1
+697	拉群测试管理员分组	7	6
+696	10-5秘鲁二次拦截	10	10
+

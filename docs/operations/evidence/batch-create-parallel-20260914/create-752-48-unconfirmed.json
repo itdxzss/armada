@@ -1,0 +1,13 @@
+{
+  "accountId": 752,
+  "no": 48,
+  "subject": "Batch-parallel-20260914-752-1-48",
+  "stage": "CREATE_REQUESTED",
+  "node": "test1 node2",
+  "observedAt": "2026-09-14T02:51:49.798Z",
+  "businessCode": 1003,
+  "message": "write tcp ...: use of closed network connection",
+  "messageAddressesRedacted": true,
+  "groupJid": null,
+  "followUp": "real group list did not return a unique matching subject; no create replay"
+}

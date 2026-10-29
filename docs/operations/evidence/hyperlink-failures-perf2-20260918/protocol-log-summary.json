@@ -1,0 +1,627 @@
+{
+  "matchedRecipients": 105,
+  "summary": [
+    {
+      "key": [
+        "SEND_FAILED",
+        "Armada Zhuan account message dispatched",
+        null,
+        null,
+        ""
+      ],
+      "logLines": 87,
+      "example": {
+        "time": "2026-09-17 17:25:39.076",
+        "recipientId": 7062,
+        "commandId": "hl:1:11:7062",
+        "accountId": 2511,
+        "failCode": "SEND_FAILED"
+      }
+    },
+    {
+      "key": [
+        "RECIPIENT_SESSION_UNAVAILABLE",
+        "Armada Zhuan account message prepare retrying",
+        "transient_infrastructure",
+        "RECIPIENT_SESSION_UNAVAILABLE",
+        ""
+      ],
+      "logLines": 36,
+      "example": {
+        "time": "2026-09-17 17:25:39.848",
+        "recipientId": 7074,
+        "commandId": "hl:1:11:7074",
+        "accountId": 2511,
+        "failCode": "RECIPIENT_SESSION_UNAVAILABLE",
+        "errorClass": "transient_infrastructure",
+        "prepareFailureCode": "RECIPIENT_SESSION_UNAVAILABLE",
+        "attempt": 1
+      }
+    },
+    {
+      "key": [
+        "RECIPIENT_SESSION_UNAVAILABLE",
+        "Armada message preparation failed",
+        null,
+        null,
+        ""
+      ],
+      "logLines": 23,
+      "example": {
+        "time": "2026-09-17 17:25:42.779",
+        "recipientId": 7074,
+        "commandId": "hl:1:11:7074",
+        "accountId": 2511,
+        "failCode": "RECIPIENT_SESSION_UNAVAILABLE",
+        "reasonCode": "RECIPIENT_SESSION_UNAVAILABLE",
+        "reason": "目标号码未能建立可用加密会话"
+      }
+    },
+    {
+      "key": [
+        "RECIPIENT_SESSION_UNAVAILABLE",
+        "Armada Zhuan account message dispatched",
+        null,
+        null,
+        ""
+      ],
+      "logLines": 40,
+      "example": {
+        "time": "2026-09-17 17:25:43.670",
+        "recipientId": 7074,
+        "commandId": "hl:1:11:7074",
+        "accountId": 2511,
+        "failCode": "RECIPIENT_SESSION_UNAVAILABLE"
+      }
+    },
+    {
+      "key": [
+        "LID_TARGET_CIPHERTEXT_MISSING",
+        "Armada Zhuan account message prepare retrying",
+        "transient_infrastructure",
+        "LID_TARGET_CIPHERTEXT_MISSING",
+        ""
+      ],
+      "logLines": 4,
+      "example": {
+        "time": "2026-09-17 17:26:10.123",
+        "recipientId": 7313,
+        "commandId": "hl:1:11:7313",
+        "accountId": 2514,
+        "failCode": "LID_TARGET_CIPHERTEXT_MISSING",
+        "errorClass": "transient_infrastructure",
+        "prepareFailureCode": "LID_TARGET_CIPHERTEXT_MISSING",
+        "attempt": 1
+      }
+    },
+    {
+      "key": [
+        "ACCOUNT_BANNED",
+        "Armada Zhuan account message prepare retrying",
+        "transient_infrastructure",
+        "RECIPIENT_SESSION_UNAVAILABLE",
+        ""
+      ],
+      "logLines": 22,
+      "example": {
+        "time": "2026-09-17 17:26:12.259",
+        "recipientId": 7265,
+        "commandId": "hl:1:11:7265",
+        "accountId": 2516,
+        "failCode": "ACCOUNT_BANNED",
+        "errorClass": "transient_infrastructure",
+        "prepareFailureCode": "RECIPIENT_SESSION_UNAVAILABLE",
+        "attempt": 1
+      }
+    },
+    {
+      "key": [
+        "ACCOUNT_BANNED",
+        "Armada Zhuan account message dispatched",
+        null,
+        null,
+        ""
+      ],
+      "logLines": 127,
+      "example": {
+        "time": "2026-09-17 17:26:13.262",
+        "recipientId": 7265,
+        "commandId": "hl:1:11:7265",
+        "accountId": 2516,
+        "failCode": "ACCOUNT_BANNED"
+      }
+    },
+    {
+      "key": [
+        "LID_TARGET_CIPHERTEXT_MISSING",
+        "Armada message preparation failed",
+        null,
+        null,
+        ""
+      ],
+      "logLines": 2,
+      "example": {
+        "time": "2026-09-17 17:26:16.893",
+        "recipientId": 7313,
+        "commandId": "hl:1:11:7313",
+        "accountId": 2514,
+        "failCode": "LID_TARGET_CIPHERTEXT_MISSING",
+        "reasonCode": "LID_TARGET_CIPHERTEXT_MISSING",
+        "reason": "发送准备失败，步骤=build，原因=LID_TARGET_CIPHERTEXT_MISSING"
+      }
+    },
+    {
+      "key": [
+        "LID_TARGET_CIPHERTEXT_MISSING",
+        "Armada Zhuan account message dispatched",
+        null,
+        null,
+        ""
+      ],
+      "logLines": 4,
+      "example": {
+        "time": "2026-09-17 17:26:17.518",
+        "recipientId": 7313,
+        "commandId": "hl:1:11:7313",
+        "accountId": 2514,
+        "failCode": "LID_TARGET_CIPHERTEXT_MISSING"
+      }
+    },
+    {
+      "key": [
+        "RECIPIENT_SESSION_UNAVAILABLE",
+        "Armada Zhuan account message prepare retrying",
+        "transient_infrastructure",
+        "SEND_PREPARE_FAILED",
+        ""
+      ],
+      "logLines": 10,
+      "example": {
+        "time": "2026-09-17 17:26:19.354",
+        "recipientId": 7140,
+        "commandId": "hl:1:11:7140",
+        "accountId": 2515,
+        "failCode": "RECIPIENT_SESSION_UNAVAILABLE",
+        "errorClass": "transient_infrastructure",
+        "prepareFailureCode": "SEND_PREPARE_FAILED",
+        "attempt": 1
+      }
+    },
+    {
+      "key": [
+        "RECIPIENT_SESSION_UNAVAILABLE",
+        "Armada Zhuan account message dispatch failed",
+        "transient_infrastructure",
+        null,
+        "reject Armada account message before send: claim Armada message command: Armada message command is already processing"
+      ],
+      "logLines": 5,
+      "example": {
+        "time": "2026-09-17 17:26:21.360",
+        "recipientId": 7140,
+        "commandId": "hl:1:11:7140",
+        "accountId": 2515,
+        "failCode": "RECIPIENT_SESSION_UNAVAILABLE",
+        "errorClass": "transient_infrastructure"
+      }
+    },
+    {
+      "key": [
+        "ACCOUNT_BANNED",
+        "Armada Zhuan account message prepare retrying",
+        "transient_infrastructure",
+        "RECIPIENT_CAPABILITY_QUERY_FAILED",
+        ""
+      ],
+      "logLines": 16,
+      "example": {
+        "time": "2026-09-17 17:26:25.139",
+        "recipientId": 7284,
+        "commandId": "hl:1:11:7284",
+        "accountId": 2516,
+        "failCode": "ACCOUNT_BANNED",
+        "errorClass": "transient_infrastructure",
+        "prepareFailureCode": "RECIPIENT_CAPABILITY_QUERY_FAILED",
+        "attempt": 1
+      }
+    },
+    {
+      "key": [
+        "ACCOUNT_BANNED",
+        "Armada Zhuan account message prepare retrying",
+        "transient_infrastructure",
+        "SEND_PREPARE_FAILED",
+        ""
+      ],
+      "logLines": 68,
+      "example": {
+        "time": "2026-09-17 17:26:49.404",
+        "recipientId": 7310,
+        "commandId": "hl:1:11:7310",
+        "accountId": 2516,
+        "failCode": "ACCOUNT_BANNED",
+        "errorClass": "transient_infrastructure",
+        "prepareFailureCode": "SEND_PREPARE_FAILED",
+        "attempt": 1
+      }
+    },
+    {
+      "key": [
+        "ACCOUNT_BANNED",
+        "Armada message preparation failed",
+        null,
+        null,
+        ""
+      ],
+      "logLines": 33,
+      "example": {
+        "time": "2026-09-17 17:26:51.408",
+        "recipientId": 7319,
+        "commandId": "hl:1:11:7319",
+        "accountId": 2516,
+        "failCode": "ACCOUNT_BANNED",
+        "reasonCode": "SEND_PREPARE_FAILED",
+        "reason": "发送前准备多次失败"
+      }
+    },
+    {
+      "key": [
+        "ACCOUNT_BANNED",
+        "Armada Zhuan account message dispatch failed",
+        "transient_infrastructure",
+        null,
+        "reject Armada account message before send: claim Armada message command: Armada message command is already processing"
+      ],
+      "logLines": 33,
+      "example": {
+        "time": "2026-09-17 17:26:51.409",
+        "recipientId": 7319,
+        "commandId": "hl:1:11:7319",
+        "accountId": 2516,
+        "failCode": "ACCOUNT_BANNED",
+        "errorClass": "transient_infrastructure"
+      }
+    },
+    {
+      "key": [
+        "ACCOUNT_BANNED",
+        "Armada Zhuan account message complete failed",
+        "transient_infrastructure",
+        null,
+        ""
+      ],
+      "logLines": 2,
+      "example": {
+        "time": "2026-09-17 17:26:52.356",
+        "recipientId": 7361,
+        "commandId": "hl:1:11:7361",
+        "accountId": 2517,
+        "failCode": "ACCOUNT_BANNED",
+        "errorClass": "transient_infrastructure"
+      }
+    },
+    {
+      "key": [
+        "SEND_FAILED",
+        "Armada Zhuan account message prepare retrying",
+        "transient_infrastructure",
+        "SEND_PREPARE_FAILED",
+        ""
+      ],
+      "logLines": 16,
+      "example": {
+        "time": "2026-09-17 17:27:29.494",
+        "recipientId": 7529,
+        "commandId": "hl:1:11:7529",
+        "accountId": 2515,
+        "failCode": "SEND_FAILED",
+        "errorClass": "transient_infrastructure",
+        "prepareFailureCode": "SEND_PREPARE_FAILED",
+        "attempt": 1
+      }
+    },
+    {
+      "key": [
+        "SEND_FAILED",
+        "Armada message preparation failed",
+        null,
+        null,
+        ""
+      ],
+      "logLines": 8,
+      "example": {
+        "time": "2026-09-17 17:27:31.497",
+        "recipientId": 7529,
+        "commandId": "hl:1:11:7529",
+        "accountId": 2515,
+        "failCode": "SEND_FAILED",
+        "reasonCode": "SEND_PREPARE_FAILED",
+        "reason": "发送前准备多次失败"
+      }
+    },
+    {
+      "key": [
+        "SEND_FAILED",
+        "Armada Zhuan account message dispatch failed",
+        "transient_infrastructure",
+        null,
+        "reject Armada account message before send: claim Armada message command: Armada message command is already processing"
+      ],
+      "logLines": 7,
+      "example": {
+        "time": "2026-09-17 17:27:31.498",
+        "recipientId": 7529,
+        "commandId": "hl:1:11:7529",
+        "accountId": 2515,
+        "failCode": "SEND_FAILED",
+        "errorClass": "transient_infrastructure"
+      }
+    },
+    {
+      "key": [
+        "SEND_PREPARE_FAILED",
+        "Armada Zhuan account message prepare retrying",
+        "transient_infrastructure",
+        "SEND_PREPARE_FAILED",
+        ""
+      ],
+      "logLines": 8,
+      "example": {
+        "time": "2026-09-17 17:27:39.522",
+        "recipientId": 7537,
+        "commandId": "hl:1:11:7537",
+        "accountId": 2515,
+        "failCode": "SEND_PREPARE_FAILED",
+        "errorClass": "transient_infrastructure",
+        "prepareFailureCode": "SEND_PREPARE_FAILED",
+        "attempt": 1
+      }
+    },
+    {
+      "key": [
+        "SEND_PREPARE_FAILED",
+        "Armada message preparation failed",
+        null,
+        null,
+        ""
+      ],
+      "logLines": 5,
+      "example": {
+        "time": "2026-09-17 17:27:41.525",
+        "recipientId": 7537,
+        "commandId": "hl:1:11:7537",
+        "accountId": 2515,
+        "failCode": "SEND_PREPARE_FAILED",
+        "reasonCode": "SEND_PREPARE_FAILED",
+        "reason": "发送前准备多次失败"
+      }
+    },
+    {
+      "key": [
+        "SEND_PREPARE_FAILED",
+        "Armada Zhuan account message dispatch failed",
+        "transient_infrastructure",
+        null,
+        "reject Armada account message before send: claim Armada message command: Armada message command is already processing"
+      ],
+      "logLines": 2,
+      "example": {
+        "time": "2026-09-17 17:27:41.526",
+        "recipientId": 7537,
+        "commandId": "hl:1:11:7537",
+        "accountId": 2515,
+        "failCode": "SEND_PREPARE_FAILED",
+        "errorClass": "transient_infrastructure"
+      }
+    },
+    {
+      "key": [
+        "SEND_FAILED",
+        "Armada Zhuan account message complete failed",
+        "transient_infrastructure",
+        null,
+        ""
+      ],
+      "logLines": 2,
+      "example": {
+        "time": "2026-09-17 17:27:41.798",
+        "recipientId": 7532,
+        "commandId": "hl:1:11:7532",
+        "accountId": 2515,
+        "failCode": "SEND_FAILED",
+        "errorClass": "transient_infrastructure"
+      }
+    },
+    {
+      "key": [
+        "SEND_PREPARE_FAILED",
+        "Armada Zhuan account message prepare retrying",
+        "transient_infrastructure",
+        "RECIPIENT_SESSION_UNAVAILABLE",
+        ""
+      ],
+      "logLines": 1,
+      "example": {
+        "time": "2026-09-17 17:27:52.193",
+        "recipientId": 7537,
+        "commandId": "hl:1:11:7537",
+        "accountId": 2515,
+        "failCode": "SEND_PREPARE_FAILED",
+        "errorClass": "transient_infrastructure",
+        "prepareFailureCode": "RECIPIENT_SESSION_UNAVAILABLE",
+        "attempt": 1
+      }
+    },
+    {
+      "key": [
+        "SEND_PREPARE_FAILED",
+        "Armada Zhuan account message prepare retrying",
+        "transient_infrastructure",
+        "RECIPIENT_CAPABILITY_QUERY_FAILED",
+        ""
+      ],
+      "logLines": 1,
+      "example": {
+        "time": "2026-09-17 17:27:58.763",
+        "recipientId": 7540,
+        "commandId": "hl:1:11:7540",
+        "accountId": 2515,
+        "failCode": "SEND_PREPARE_FAILED",
+        "errorClass": "transient_infrastructure",
+        "prepareFailureCode": "RECIPIENT_CAPABILITY_QUERY_FAILED",
+        "attempt": 1
+      }
+    },
+    {
+      "key": [
+        "SEND_PREPARE_FAILED",
+        "Armada Zhuan account message dispatched",
+        null,
+        null,
+        ""
+      ],
+      "logLines": 8,
+      "example": {
+        "time": "2026-09-17 17:28:02.483",
+        "recipientId": 7537,
+        "commandId": "hl:1:11:7537",
+        "accountId": 2515,
+        "failCode": "SEND_PREPARE_FAILED"
+      }
+    },
+    {
+      "key": [
+        "SEND_FAILED",
+        "Armada Zhuan account message prepare retrying",
+        "transient_infrastructure",
+        "RECIPIENT_CAPABILITY_QUERY_FAILED",
+        ""
+      ],
+      "logLines": 1,
+      "example": {
+        "time": "2026-09-17 17:28:08.764",
+        "recipientId": 7543,
+        "commandId": "hl:1:11:7543",
+        "accountId": 2515,
+        "failCode": "SEND_FAILED",
+        "errorClass": "transient_infrastructure",
+        "prepareFailureCode": "RECIPIENT_CAPABILITY_QUERY_FAILED",
+        "attempt": 1
+      }
+    },
+    {
+      "key": [
+        "SEND_RESULT_UNKNOWN",
+        "Armada Zhuan account message prepare retrying",
+        "transient_infrastructure",
+        "RECIPIENT_SESSION_UNAVAILABLE",
+        ""
+      ],
+      "logLines": 9,
+      "example": {
+        "time": "2026-09-17 17:28:19.806",
+        "recipientId": 7574,
+        "commandId": "hl:1:11:7574",
+        "accountId": 2518,
+        "failCode": "SEND_RESULT_UNKNOWN",
+        "errorClass": "transient_infrastructure",
+        "prepareFailureCode": "RECIPIENT_SESSION_UNAVAILABLE",
+        "attempt": 1
+      }
+    },
+    {
+      "key": [
+        "SEND_RESULT_UNKNOWN",
+        "Armada Zhuan account message prepare retrying",
+        "transient_infrastructure",
+        "SEND_PREPARE_FAILED",
+        ""
+      ],
+      "logLines": 51,
+      "example": {
+        "time": "2026-09-17 17:28:21.909",
+        "recipientId": 7574,
+        "commandId": "hl:1:11:7574",
+        "accountId": 2518,
+        "failCode": "SEND_RESULT_UNKNOWN",
+        "errorClass": "transient_infrastructure",
+        "prepareFailureCode": "SEND_PREPARE_FAILED",
+        "attempt": 1
+      }
+    },
+    {
+      "key": [
+        "SEND_RESULT_UNKNOWN",
+        "Armada message preparation failed",
+        null,
+        null,
+        ""
+      ],
+      "logLines": 25,
+      "example": {
+        "time": "2026-09-17 17:28:23.913",
+        "recipientId": 7574,
+        "commandId": "hl:1:11:7574",
+        "accountId": 2518,
+        "failCode": "SEND_RESULT_UNKNOWN",
+        "reasonCode": "SEND_PREPARE_FAILED",
+        "reason": "发送前准备多次失败"
+      }
+    },
+    {
+      "key": [
+        "SEND_RESULT_UNKNOWN",
+        "Armada Zhuan account message dispatch failed",
+        "transient_infrastructure",
+        null,
+        "reject Armada account message before send: claim Armada message command: Armada message command is already processing"
+      ],
+      "logLines": 25,
+      "example": {
+        "time": "2026-09-17 17:28:23.914",
+        "recipientId": 7574,
+        "commandId": "hl:1:11:7574",
+        "accountId": 2518,
+        "failCode": "SEND_RESULT_UNKNOWN",
+        "errorClass": "transient_infrastructure"
+      }
+    },
+    {
+      "key": [
+        "SEND_FAILED",
+        "Armada Zhuan account message prepare retrying",
+        "transient_infrastructure",
+        "RECIPIENT_SESSION_UNAVAILABLE",
+        ""
+      ],
+      "logLines": 2,
+      "example": {
+        "time": "2026-09-17 17:28:28.770",
+        "recipientId": 7550,
+        "commandId": "hl:1:11:7550",
+        "accountId": 2515,
+        "failCode": "SEND_FAILED",
+        "errorClass": "transient_infrastructure",
+        "prepareFailureCode": "RECIPIENT_SESSION_UNAVAILABLE",
+        "attempt": 1
+      }
+    },
+    {
+      "key": [
+        "SEND_RESULT_UNKNOWN",
+        "Armada Zhuan account message dispatched",
+        null,
+        null,
+        ""
+      ],
+      "logLines": 57,
+      "example": {
+        "time": "2026-09-17 17:30:09.899",
+        "recipientId": 7587,
+        "commandId": "hl:1:11:7587",
+        "accountId": 2518,
+        "failCode": "SEND_RESULT_UNKNOWN"
+      }
+    }
+  ]
+}

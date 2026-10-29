@@ -1,0 +1,52 @@
+[
+  {
+    "mode": "pn",
+    "iso": "REPEATABLE READ",
+    "counts": {
+      "success": 100
+    },
+    "examples": [],
+    "variant": "no_lid_assignment"
+  },
+  {
+    "mode": "pn",
+    "iso": "REPEATABLE READ",
+    "counts": {
+      "success": 100
+    },
+    "examples": [],
+    "variant": "primary_update"
+  },
+  {
+    "mode": "pn",
+    "iso": "READ COMMITTED",
+    "counts": {
+      "success": 100
+    },
+    "examples": [],
+    "variant": "primary_update"
+  },
+  {
+    "mode": "pn",
+    "iso": "REPEATABLE READ",
+    "counts": {
+      "success": 88,
+      "matching_gap_cycle": 12
+    },
+    "examples": [
+      "minimal_lid_fill_pn_repeatable-17-innodb.txt",
+      "minimal_lid_fill_pn_repeatable-23-innodb.txt",
+      "minimal_lid_fill_pn_repeatable-35-innodb.txt",
+      "minimal_lid_fill_pn_repeatable-40-innodb.txt",
+      "minimal_lid_fill_pn_repeatable-50-innodb.txt",
+      "minimal_lid_fill_pn_repeatable-57-innodb.txt",
+      "minimal_lid_fill_pn_repeatable-61-innodb.txt",
+      "minimal_lid_fill_pn_repeatable-68-innodb.txt",
+      "minimal_lid_fill_pn_repeatable-70-innodb.txt",
+      "minimal_lid_fill_pn_repeatable-72-innodb.txt",
+      "minimal_lid_fill_pn_repeatable-79-innodb.txt",
+      "minimal_lid_fill_pn_repeatable-88-innodb.txt"
+    ],
+    "variant": "minimal_lid_fill"
+  }
+]

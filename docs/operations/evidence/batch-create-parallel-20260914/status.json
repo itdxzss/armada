@@ -1,0 +1,159 @@
+{
+  "observedAt": "2026-09-14T02:55:23.649857+00:00",
+  "target": 500,
+  "created": 353,
+  "protocolVerified": 353,
+  "done": 73,
+  "running": 0,
+  "accounts": [
+    {
+      "accountId": 745,
+      "created": 50,
+      "protocolVerified": 50,
+      "done": 8,
+      "running": false
+    },
+    {
+      "accountId": 746,
+      "created": 26,
+      "protocolVerified": 26,
+      "done": 8,
+      "running": false,
+      "issue": {
+        "no": 27,
+        "stage": "CREATE_REJECTED",
+        "error": "CREATE_REJECTED：WhatsApp rate-overlimit / 429，暂停该建群号",
+        "rejection": {
+          "code": "429",
+          "reason": "rate-overlimit",
+          "businessCode": 1003,
+          "observedAt": "2026-09-14T02:37:22.791Z"
+        },
+        "groupJid": null
+      }
+    },
+    {
+      "accountId": 752,
+      "created": 47,
+      "protocolVerified": 47,
+      "done": 8,
+      "running": false,
+      "issue": {
+        "no": 48,
+        "stage": "CREATE_REQUESTED",
+        "error": "CREATE_UNCONFIRMED：未找到唯一同名群，保留现场，不自动再建",
+        "rejection": null,
+        "groupJid": null
+      }
+    },
+    {
+      "accountId": 774,
+      "created": 26,
+      "protocolVerified": 26,
+      "done": 6,
+      "running": false,
+      "issue": {
+        "no": 27,
+        "stage": "CREATE_REJECTED",
+        "error": "CREATE_REJECTED：WhatsApp rate-overlimit / 429，暂停该建群号",
+        "rejection": {
+          "code": "429",
+          "reason": "rate-overlimit",
+          "businessCode": 1003,
+          "observedAt": "2026-09-14T02:34:58.770Z"
+        },
+        "groupJid": null
+      }
+    },
+    {
+      "accountId": 781,
+      "created": 26,
+      "protocolVerified": 26,
+      "done": 8,
+      "running": false,
+      "issue": {
+        "no": 27,
+        "stage": "CREATE_REJECTED",
+        "error": "CREATE_REJECTED：WhatsApp rate-overlimit / 429，暂停该建群号",
+        "rejection": {
+          "code": "429",
+          "reason": "rate-overlimit",
+          "businessCode": 1003,
+          "observedAt": "2026-09-14T02:24:41.008Z"
+        },
+        "groupJid": null
+      }
+    },
+    {
+      "accountId": 782,
+      "created": 26,
+      "protocolVerified": 26,
+      "done": 8,
+      "running": false,
+      "issue": {
+        "no": 27,
+        "stage": "CREATE_REJECTED",
+        "error": "CREATE_REJECTED：WhatsApp rate-overlimit / 429，暂停该建群号",
+        "rejection": {
+          "code": "429",
+          "reason": "rate-overlimit",
+          "businessCode": 1003,
+          "observedAt": "2026-09-14T02:24:50.915Z"
+        },
+        "groupJid": null
+      }
+    },
+    {
+      "accountId": 783,
+      "created": 50,
+      "protocolVerified": 50,
+      "done": 6,
+      "running": false
+    },
+    {
+      "accountId": 784,
+      "created": 26,
+      "protocolVerified": 26,
+      "done": 7,
+      "running": false,
+      "issue": {
+        "no": 27,
+        "stage": "CREATE_REJECTED",
+        "error": "CREATE_REJECTED：WhatsApp rate-overlimit / 429，暂停该建群号",
+        "rejection": {
+          "code": "429",
+          "reason": "rate-overlimit",
+          "businessCode": 1003,
+          "observedAt": "2026-09-14T02:25:39.788Z"
+        },
+        "groupJid": null
+      }
+    },
+    {
+      "accountId": 913,
+      "created": 50,
+      "protocolVerified": 50,
+      "done": 8,
+      "running": false
+    },
+    {
+      "accountId": 1576,
+      "created": 26,
+      "protocolVerified": 26,
+      "done": 6,
+      "running": false,
+      "issue": {
+        "no": 27,
+        "stage": "CREATE_REJECTED",
+        "error": "CREATE_REJECTED：WhatsApp rate-overlimit / 429，暂停该建群号",
+        "rejection": {
+          "code": "429",
+          "reason": "rate-overlimit",
+          "businessCode": 1003,
+          "observedAt": "2026-09-14T02:44:54.351Z"
+        },
+        "groupJid": null
+      }
+    }
+  ]
+}

@@ -1,0 +1,646 @@
+Browser tab: [redacted-number], Title: "拉群任务 | 第一套环境", URL: "http://armada.65.2.123.53.nip.io/?#/task/pull".
+0 AXWebArea 拉群任务 | 第一套环境, URL: armada.65.2.123.53.nip.io/?#/task/pull
+	1 image
+	2 container
+		3 link Description: logo 第一套环境, Value: armada.65.2.123.53.nip.io/?#/welcome
+		4 menu bar
+			5 link Description: 首页, Value: armada.65.2.123.53.nip.io/?#/
+			6 (collapsed) 账号管理, Secondary Actions: Expand
+				7 container
+					8 image
+					9 text 账号管理
+					10 image
+			11 (expanded) 任务中心, Secondary Actions: Collapse
+				12 container
+					13 image
+					14 text 任务中心
+					15 image
+				16 menu
+					17 link Description: 账号导入, Value: armada.65.2.123.53.nip.io/?#/account/import
+					18 link Description: 导入链接, Value: armada.65.2.123.53.nip.io/?#/task/group-link/imports
+					19 link Description: 群组列表, Value: armada.65.2.123.53.nip.io/?#/group/list
+					20 link Description: 历史群管理, Value: armada.65.2.123.53.nip.io/?#/group/history
+					21 link Description: 拉群任务, Value: armada.65.2.123.53.nip.io/?#/task/pull
+					22 link Description: 拉群数据包, Value: armada.65.2.123.53.nip.io/?#/resource/group-data-package
+					23 link Description: 进群任务, Value: armada.65.2.123.53.nip.io/?#/task/join
+					24 link Description: 营销任务, Value: armada.65.2.123.53.nip.io/?#/task/group-marketing
+					25 link Description: 拉群营销, Value: armada.65.2.123.53.nip.io/?#/task/group-pull-marketing
+					26 link Description: 建群营销, Value: armada.65.2.123.53.nip.io/?#/task/group-creation-marketing
+			27 (collapsed) 动态营销, Secondary Actions: Expand
+				28 container
+					29 image
+					30 text 动态营销
+					31 image
+			32 (collapsed) 养群管理, Secondary Actions: Expand
+				33 container
+					34 image
+					35 text 养群管理
+					36 image
+			37 (collapsed) 素材管理, Secondary Actions: Expand
+				38 container
+					39 image
+					40 text 素材管理
+					41 image
+			42 (collapsed) 运营管理, Secondary Actions: Expand
+				43 container
+					44 image
+					45 text 运营管理
+					46 image
+			47 (collapsed) 超链营销, Secondary Actions: Expand
+				48 container
+					49 image
+					50 text 超链营销
+					51 image
+			52 (collapsed) 通讯录营销, Secondary Actions: Expand
+				53 container
+					54 image
+					55 text 通讯录营销
+					56 image
+			57 (collapsed) 买号上量, Secondary Actions: Expand
+				58 container
+					59 image
+					60 text 买号上量
+					61 image
+			62 (collapsed) 系统管理, Secondary Actions: Expand
+				63 container
+					64 image
+					65 text 系统管理
+					66 image
+		67 image
+		68 container
+			69 container 面包屑
+				70 link 任务中心
+					71 link 任务中心
+						72 text 任务中心
+				73 text /
+				74 link 拉群任务
+					75 link 拉群任务
+						76 text 拉群任务
+			77 pop up button (collapsed) 7, ID: header-notice, Secondary Actions: Expand
+				78 container
+					79 image
+					80 text 7
+			81 pop up button (collapsed) 代宣照, ID: el-id-9669-19, Secondary Actions: Expand
+				82 image
+				83 text 代宣照
+			84 container
+				85 text 首页 拉群任务
+			86 pop up button (collapsed) ID: el-id-9669-25, Secondary Actions: Expand
+				87 image
+		516 container
+			517 container 拉群任务
+				518 container
+					519 text ID
+					520 text field (settable) ID, ID: el-id-9669-96
+					521 text 任务名称
+					522 text field (settable) 任务名称, ID: el-id-9669-97
+					523 text 任务状态
+					524 container
+						525 combo box (collapsed, settable) 任务状态, ID: el-id-9669-98, Secondary Actions: Expand
+						526 text 请选择
+						527 image
+					528 container
+						529 button 查询
+							530 text 查询
+						531 button 重置
+							532 text 重置
+						533 button 展开搜索条件
+				534 text 拉群任务
+				535 button 全局设置
+					536 text 全局设置
+				537 button 新建拉群任务
+					538 text 新建拉群任务
+				539 button (disabled) 批量删除
+					540 text 批量删除
+				541 image
+				542 pop up button (collapsed) ID: el-id-9669-65, Secondary Actions: Expand
+				543 image
+				544 image
+				545 container
+					546 table
+						547 row
+							548 cell
+								549 checkbox (settable, integer) Value: 0, ID: el-id-9669-111
+							550 cell
+								551 text 任务信息
+							552 cell
+								553 text 任务状态
+							554 cell
+								555 text 群组处理进度
+							556 cell
+								557 text 拉人结果
+							558 cell
+								559 text 营销进度
+							560 cell
+								561 text 消息发送
+							562 cell
+								563 text 异常情况
+							564 cell
+								565 text 剩余资源
+							566 cell
+								567 text 时间/操作
+					890 table
+						891 container
+							892 row
+								893 cell
+									894 checkbox (settable, integer) Value: 0, ID: el-id-9669-464
+								895 cell
+									896 text NG验收-test1-[redacted-number]-1233
+									897 text #218｜普通拉群｜--
+									898 text 新群模式
+									899 text 创建人：代宣照
+								900 cell
+									901 text 进行中
+									902 text --
+								903 cell
+									904 container
+										905 text 0/1
+										906 progress indicator 0
+								907 cell
+									908 container
+										909 text 0/6 有效成功率 0.0%
+								910 cell
+									911 text --
+								912 cell
+									913 text --
+								914 cell
+									915 text 无异常
+								916 cell
+									917 text 目标数据 6 可用拉手 0
+								918 cell
+									919 text 创建时间 2026-10-03 12:37:43 最近执行 2026-10-03 12:45:33
+									920 button 查看详情
+									921 button 暂停
+									922 button 结束
+							923 row
+								924 cell
+									925 checkbox (settable, integer) Value: 0, ID: el-id-9669-132
+								926 cell
+									927 text 任务_88676752
+									928 text #217｜普通拉群｜--
+									929 text 群链接模式
+									930 text 创建人：白小白
+								931 cell
+									932 text 任务已结束
+									933 text 人工结束
+								934 cell
+									935 container
+										936 text 2/2
+										937 progress indicator 100
+								938 cell
+									939 container
+										940 text 0/202 有效成功率 0.0%
+								941 cell
+									942 text --
+								943 cell
+									944 text --
+								945 cell
+									946 text 异常群组2（ 缺管理员0 /  缺拉手0 / 缺站台0） 封禁账号--
+								947 cell
+									948 text 目标数据 0 可用拉手 0
+								949 cell
+									950 text 创建时间 2026-09-29 21:32:01 最近执行 2026-09-29 21:34:50
+									951 button 查看详情
+									952 button 删除
+							953 row
+								954 cell
+									955 checkbox (settable, integer) Value: 0, ID: el-id-9669-133
+								956 cell
+									957 text 任务_86502548
+									958 text #216｜普通拉群｜--
+									959 text 群链接模式
+									960 text 创建人：白小白
+								961 cell
+									962 text 任务已结束
+									963 text 人工结束
+								964 cell
+									965 container
+										966 text 3/3
+										967 progress indicator 100
+								968 cell
+									969 container
+										970 text 0/302 有效成功率 0.0%
+								971 cell
+									972 text --
+								973 cell
+									974 text --
+								975 cell
+									976 text 异常群组3（ 缺管理员0 /  缺拉手0 / 缺站台0） 封禁账号--
+								977 cell
+									978 text 目标数据 0 可用拉手 0
+								979 cell
+									980 text 创建时间 2026-09-29 20:56:03 最近执行 2026-09-29 21:01:59
+									981 button 查看详情
+									982 button 删除
+							983 row
+								984 cell
+									985 checkbox (settable, integer) Value: 0, ID: el-id-9669-134
+								986 cell
+									987 text 任务_81838712
+									988 text #215｜普通拉群｜--
+									989 text 群链接模式
+									990 text 创建人：白小白
+								991 cell
+									992 text 已完成
+									993 text --
+								994 cell
+									995 container
+										996 text 1/1
+										997 progress indicator 100
+								998 cell
+									999 container
+										1000 text 0/401 有效成功率 0.0%
+								1001 cell
+									1002 text --
+								1003 cell
+									1004 text --
+								1005 cell
+									1006 text 异常群组1（ 缺管理员0 /  缺拉手0 / 缺站台0） 封禁账号--
+								1007 cell
+									1008 text 目标数据 1 可用拉手 0
+								1009 cell
+									1010 text 创建时间 2026-09-28 15:50:46 最近执行 2026-09-28 15:55:10
+									1011 button 查看详情
+									1012 button 删除
+							1013 row
+								1014 cell
+									1015 checkbox (settable, integer) Value: 0, ID: el-id-9669-135
+								1016 cell
+									1017 text 任务_38648299
+									1018 text #214｜普通拉群｜--
+									1019 text 群链接模式
+									1020 text 创建人：白小白
+								1021 cell
+									1022 text 任务已结束
+									1023 text 人工结束
+								1024 cell
+									1025 container
+										1026 text 1/1
+										1027 progress indicator 100
+								1028 cell
+									1029 container
+										1030 text 0/201 有效成功率 0.0%
+								1031 cell
+									1032 text --
+								1033 cell
+									1034 text --
+								1035 cell
+									1036 text 异常群组1（ 缺管理员0 /  缺拉手0 / 缺站台0） 封禁账号--
+								1037 cell
+									1038 text 目标数据 0 可用拉手 0
+								1039 cell
+									1040 text 创建时间 2026-09-16 14:05:21 最近执行 2026-09-17 14:18:43
+									1041 button 查看详情
+									1042 button 删除
+							1043 row
+								1044 cell
+									1045 checkbox (settable, integer) Value: 0, ID: el-id-9669-136
+								1046 cell
+									1047 text 任务_98192619
+									1048 text #213｜普通拉群｜--
+									1049 text 群链接模式
+									1050 text 创建人：白小白
+								1051 cell
+									1052 text 任务已结束
+									1053 text 人工结束
+								1054 cell
+									1055 container
+										1056 text 3/3
+										1057 progress indicator 100
+								1058 cell
+									1059 container
+										1060 text 0/603 有效成功率 0.0%
+								1061 cell
+									1062 text --
+								1063 cell
+									1064 text --
+								1065 cell
+									1066 text 异常群组3（ 缺管理员0 /  缺拉手0 / 缺站台0） 封禁账号--
+								1067 cell
+									1068 text 目标数据 0 可用拉手 0
+								1069 cell
+									1070 text 创建时间 2026-09-14 23:03:59 最近执行 2026-09-15 01:45:36
+									1071 button 查看详情
+									1072 button 删除
+							1073 row
+								1074 cell
+									1075 checkbox (settable, integer) Value: 0, ID: el-id-9669-137
+								1076 cell
+									1077 text 任务_71317456
+									1078 text #212｜普通拉群｜--
+									1079 text 群链接模式
+									1080 text 创建人：代宣照
+								1081 cell
+									1082 text 任务已结束
+									1083 text 人工结束
+								1084 cell
+									1085 container
+										1086 text 5/5
+										1087 progress indicator 100
+								1088 cell
+									1089 container
+										1090 text 0/1,005 有效成功率 0.0%
+								1091 cell
+									1092 text --
+								1093 cell
+									1094 text --
+								1095 cell
+									1096 text 异常群组5（ 缺管理员0 /  缺拉手0 / 缺站台0） 封禁账号--
+								1097 cell
+									1098 text 目标数据 0 可用拉手 0
+								1099 cell
+									1100 text 创建时间 2026-09-14 15:37:08 最近执行 2026-09-14 15:52:27
+									1101 button 查看详情
+									1102 button 删除
+							1103 row
+								1104 cell
+									1105 checkbox (settable, integer) Value: 0, ID: el-id-9669-138
+								1106 cell
+									1107 text 任务_61464707
+									1108 text #211｜普通拉群｜--
+									1109 text 群链接模式
+									1110 text 创建人：代宣照
+								1111 cell
+									1112 text 任务已结束
+									1113 text 人工结束
+								1114 cell
+									1115 container
+										1116 text 5/5
+										1117 progress indicator 100
+								1118 cell
+									1119 container
+										1120 text 0/1,005 有效成功率 0.0%
+								1121 cell
+									1122 text --
+								1123 cell
+									1124 text --
+								1125 cell
+									1126 text 异常群组5（ 缺管理员0 /  缺拉手0 / 缺站台0） 封禁账号--
+								1127 cell
+									1128 text 目标数据 0 可用拉手 0
+								1129 cell
+									1130 text 创建时间 2026-09-14 12:56:06 最近执行 2026-09-14 12:59:43
+									1131 button 查看详情
+									1132 button 删除
+							1133 row
+								1134 cell
+									1135 checkbox (settable, integer) Value: 0, ID: el-id-9669-139
+								1136 cell
+									1137 text 任务_88880593
+									1138 text #210｜普通拉群｜--
+									1139 text 新群模式
+									1140 text 创建人：白小白
+								1141 cell
+									1142 text 任务已结束
+									1143 text 人工结束
+								1144 cell
+									1145 container
+										1146 text 1/1
+										1147 progress indicator 100
+								1148 cell
+									1149 container
+										1150 text 0/201 有效成功率 0.0%
+								1151 cell
+									1152 text --
+								1153 cell
+									1154 text --
+								1155 cell
+									1156 text 异常群组1（ 缺管理员0 /  缺拉手0 / 缺站台0） 封禁账号--
+								1157 cell
+									1158 text 目标数据 0 可用拉手 0
+								1159 cell
+									1160 text 创建时间 2026-09-13 16:42:48 最近执行 2026-09-13 16:43:44
+									1161 button 查看详情
+									1162 button 删除
+							1163 row
+								1164 cell
+									1165 checkbox (settable, integer) Value: 0, ID: el-id-9669-140
+								1166 cell
+									1167 text 任务_23353891_重拉_0913
+									1168 text #209｜普通拉群｜--
+									1169 text 群链接模式
+									1170 text 创建人：代宣照
+								1171 cell
+									1172 text 任务已结束
+									1173 text 人工结束
+								1174 cell
+									1175 container
+										1176 text 8/8
+										1177 progress indicator 100
+								1178 cell
+									1179 container
+										1180 text 250/1,608 有效成功率 15.5%
+								1181 cell
+									1182 text --
+								1183 cell
+									1184 text --
+								1185 cell
+									1186 text 异常群组8（ 缺管理员0 /  缺拉手0 / 缺站台0） 封禁账号--
+								1187 cell
+									1188 text 目标数据 0 可用拉手 0
+								1189 cell
+									1190 text 创建时间 2026-09-13 10:09:32 最近执行 2026-09-13 16:08:44
+									1191 button 查看详情
+									1192 button 删除
+				872 text 共 13 条
+				873 container
+					874 combo box (collapsed, settable) ID: el-id-9669-103, Secondary Actions: Expand
+					875 text 10条/页
+					876 image
+				877 button (disabled) 上一页
+				878 content list
+					879 container 第 1 页
+						880 text 1
+					881 container 第 2 页
+						882 text 2
+				883 button 下一页
+				884 text 前往
+				885 stepper (settable, integer) Description: 页, Value: 1, ID: el-id-9669-104
+				886 text 页
+				1193 container 拉群任务详情
+					1194 container
+					1195 container
+						1196 heading 拉群任务详情, Value: 2, ID: el-id-9669-84
+							1197 text 拉群任务详情
+						1198 button 关闭此对话框
+					1199 container el-id-9669-85
+						1200 text NG验收-test1-[redacted-number]-1233
+						1201 text 新群模式
+						1202 button 暂停
+						1203 button 结束
+						1366 text 数据截至：2026-10-03 12:47:21
+						1205 container
+							1206 checkbox (settable, integer) Description: 自动刷新（10 秒）, Value: 1
+							1207 text 自动刷新（10 秒）
+						1208 button 刷新
+						1290 text 群组总数
+						1291 text 1
+						1292 text 执行中
+						1293 text 1
+						1294 text 等待资源
+						1295 text 0
+						1296 text 已完成
+						1297 text 0
+						1298 text 执行失败
+						1299 text 0
+						1300 text 已取消
+						1301 text 0
+						1302 button (collapsed) 已保存任务配置, ID: el-collapse-head-518, Secondary Actions: Expand
+							1303 text 已保存任务配置
+						1226 container
+							1227 text 任务情况
+							1228 container
+								1229 combo box (collapsed, settable) 任务情况, ID: el-id-9669-512, Secondary Actions: Expand
+								1230 text 请选择
+								1231 image
+							1232 text 群名 / 料子
+							1233 text field (settable) 群名 / 料子, ID: el-id-9669-513
+							1234 text 当前阶段
+							1235 container
+								1236 combo box (collapsed, settable) 当前阶段, ID: el-id-9669-514, Secondary Actions: Expand
+								1237 text 请选择
+								1238 image
+							1239 text 资源异常
+							1240 container
+								1241 combo box (collapsed, settable) 资源异常, ID: el-id-9669-515, Secondary Actions: Expand
+								1242 text 请选择
+								1243 image
+							1244 container
+								1245 button 查询
+								1246 button 重置
+						1304 container
+							1305 table
+								1306 row
+									1307 cell
+										1308 text 序号
+									1309 cell
+										1310 text 群组名称
+									1311 cell
+										1312 text 群组
+									1313 cell
+										1314 text 料子包名称
+									1315 cell
+										1316 text 任务情况
+									1317 cell
+										1318 text 当前阶段
+									1319 cell
+										1320 text 料子进度
+									1321 cell
+										1322 text 执行资源（当前/计划）
+									1323 cell
+										1324 text 当前异常
+									1325 cell
+										1326 text 最近执行时间
+									1327 cell
+										1328 text 操作
+							1329 table
+								1330 row
+									1331 cell
+										1332 text 1
+									1333 cell
+										1334 text NG验收-test1-[redacted-number]-1233
+									1335 cell
+										1336 text NG验收-test1-[redacted-number]-1233
+										1337 text 建群步骤：创建 WhatsApp 群
+									1338 cell
+										1339 text A8-XA748-test1-accept-6.txt
+									1340 cell
+										1341 text 任务暂停
+										1342 text 已暂停推进
+									1343 cell
+										1344 text 创建新群  / 创建 WhatsApp 群
+									1345 cell
+										1346 text 成功 0 人 / 失败 0 人 / 结果未知 0 人
+										1347 text 等待结果 0 人 / 待执行 6 人（其中待重试 0 人）
+										1348 text 累计尝试 0 次 / 其中结果未确认 0 次
+									1349 cell
+										1350 container
+											1351 text 管理员：0/1（缺 1）
+											1352 text 拉手：0/1（缺 1）
+											1353 text 站台：0/0
+									1354 cell
+										1355 text 建群结果未知，已停止自动重建，请人工核对：建群结果无法确认
+										1356 text 本群已暂停推进
+										1357 text 下一步：查看暂停原因，满足条件后再恢复
+									1358 cell
+										1359 text 2026-10-03 12:45:33
+									1360 cell
+										1361 container
+											1362 button 查看明细
+											1363 button 恢复
+											1364 button 结束
+						1365 text 共 1 条
+						1277 container
+							1278 combo box (collapsed, settable) ID: el-id-9669-516, Secondary Actions: Expand
+							1279 text 10条/页
+							1280 image
+						1281 button (disabled) 上一页
+						1282 content list
+							1283 container 第 1 页
+								1284 text 1
+						1285 button (disabled) 下一页
+						1286 text 前往
+						1287 stepper (settable, integer) Description: 页, Value: 1, ID: el-id-9669-517
+						1288 text 页
+			887 container
+				888 text Copyright © 2020-present
+				889 link Description:  第一套环境, Value: github.com/pure-admin
+		459 container
+			460 heading 系统配置, Value: 4
+				461 text 系统配置
+			462 image
+			463 container
+				464 text 整体风格
+				465 container
+					466 radio button (settable, integer) Description: 浅色, Value: 0
+					467 image
+					468 text 浅色
+					469 radio button (settable, integer) Description: 深色, Value: 0
+					470 image
+					471 text 深色
+					472 radio button (settable, integer) Description: 自动, Value: 0
+					473 image
+					474 text 自动
+				475 text 主题色
+				476 text 导航模式
+				477 text 页宽
+				478 container
+					479 radio button (settable, integer) Description: 固定, Value: 0
+					480 text 固定
+					481 radio button (settable, integer) Description: 自定义, Value: 0
+					482 text 自定义
+				483 button
+					484 image
+					485 image
+				486 text 页签风格
+				487 container
+					488 radio button (settable, integer) Description: 灵动, Value: 0
+					489 text 灵动
+					490 radio button (settable, integer) Description: 卡片, Value: 0
+					491 text 卡片
+					492 radio button (settable, integer) Description: 谷歌, Value: 0
+					493 text 谷歌
+				494 text 界面显示
+				495 content list
+					496 container
+						497 text 灰色模式
+						498 switch (settable, boolean) Value: 0, ID: el-id-9669-105
+					499 container
+						500 text 色弱模式
+						501 switch (settable, boolean) Value: 0, ID: el-id-9669-106
+					502 container
+						503 text 隐藏标签页
+						504 switch (settable, boolean) Value: 0, ID: el-id-9669-107
+					505 container
+						506 text 隐藏页脚
+						507 switch (settable, boolean) Value: 0, ID: el-id-9669-108
+					508 container
+						509 text Logo
+						510 switch (settable, boolean) Value: 1, ID: el-id-9669-109
+						511 text 开
+					512 container
+						513 text 页签持久化
+						514 switch (settable, boolean) Value: 0, ID: el-id-9669-110
+			515 button 清空缓存
+
+The focused UI element is 1194 container

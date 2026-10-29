@@ -1,0 +1,39 @@
+{"file": "whatsapp-server-2026-09-30.log", "size": 95550260}
+{"traceId": "c7685b97b69d429ea384d9b7fb24ee22", "messageId": "armada.perf.protocol.android.message.commands.v1:5:373773", "time": "2026-09-30 13:31:41.231", "msg": "Armada Zhuan account message dispatched"}
+{"messageID": "C082D747E1124C84B6C11DC88A2BED19", "tracked": true, "time": "2026-09-30 13:31:42.722", "msg": "WhatsApp message ACK accepted"}
+{"traceId": "075354c94776422a93376c0e85e35f42", "messageId": "armada.perf.protocol.android.message.commands.v1:5:373770", "time": "2026-09-30 13:31:56.693", "msg": "Armada Zhuan account message dispatched"}
+{"traceId": "a9a3a1ff580d4363b559e141e221af22", "messageId": "armada.perf.protocol.android.message.commands.v1:5:373768", "time": "2026-09-30 13:31:57.508", "msg": "Armada Zhuan account message dispatched"}
+{"traceId": "06a50faab848480982838b268d720c8b", "messageId": "armada.perf.protocol.android.message.commands.v1:5:373774", "time": "2026-09-30 13:31:58.011", "msg": "Armada Zhuan account message dispatched"}
+{"traceId": "0882432cf1fe49378815b1c478ab063a", "messageId": "armada.perf.protocol.android.message.commands.v1:5:373772", "time": "2026-09-30 13:31:58.514", "msg": "Armada Zhuan account message dispatched"}
+{"messageID": "FE87D50245FE491DAA9603FBA1903F0D", "tracked": true, "time": "2026-09-30 13:31:58.615", "msg": "WhatsApp message ACK accepted"}
+{"traceId": "a9c7af2b89934778b7cd768439281955", "messageId": "armada.perf.protocol.android.message.commands.v1:5:373766", "time": "2026-09-30 13:31:59.016", "msg": "Armada Zhuan account message dispatched"}
+{"messageID": "77069A4C0C21419A9443EE74CF1DB2C7", "tracked": true, "time": "2026-09-30 13:31:59.053", "msg": "WhatsApp message ACK accepted"}
+{"traceId": "a08f73cabfc44266a385d36d435154b8", "messageId": "armada.perf.protocol.android.message.commands.v1:5:373769", "time": "2026-09-30 13:31:59.519", "msg": "Armada Zhuan account message dispatched"}
+{"traceId": "c442832b028745389c1238d5ba6f0744", "messageId": "armada.perf.protocol.android.message.commands.v1:5:373765", "time": "2026-09-30 13:32:00.022", "msg": "Armada Zhuan account message dispatched"}
+{"traceId": "5582ef4e75494b33a821c78b0aaf194f", "messageId": "armada.perf.protocol.android.message.commands.v1:5:373771", "time": "2026-09-30 13:32:00.525", "msg": "Armada Zhuan account message dispatched"}
+{"traceId": "101a37c18dc4458e91555038d20990d7", "messageId": "armada.perf.protocol.android.message.commands.v1:5:373767", "time": "2026-09-30 13:32:01.028", "msg": "Armada Zhuan account message dispatched"}
+{"messageID": "4EAEF666CA854A73965E96F2A7A2A4CD", "tracked": true, "time": "2026-09-30 13:32:02.387", "msg": "WhatsApp message ACK accepted"}
+{"messageID": "B10D0330B8974D3F8361E6CF55A62388", "timeoutMs": 8000, "time": "2026-09-30 13:32:06.515", "msg": "WhatsApp message ACK timeout"}
+{"messageID": "152B1C476C2841E89E3952685CD1E137", "timeoutMs": 8000, "time": "2026-09-30 13:32:07.017", "msg": "WhatsApp message ACK timeout"}
+{"messageID": "E53D90929ED34A229E15769C9AA1CB85", "timeoutMs": 8000, "time": "2026-09-30 13:32:07.520", "msg": "WhatsApp message ACK timeout"}
+{"messageID": "99A281F1AF684F98AB5D4D7FA820DB85", "timeoutMs": 8000, "time": "2026-09-30 13:32:08.022", "msg": "WhatsApp message ACK timeout"}
+{"messageID": "E55A499099944DBFA052973AD5E70976", "timeoutMs": 8000, "time": "2026-09-30 13:32:08.525", "msg": "WhatsApp message ACK timeout"}
+{"messageID": "152B1C476C2841E89E3952685CD1E137", "tracked": false, "time": "2026-09-30 13:32:08.967", "msg": "WhatsApp message ACK accepted"}
+{"messageID": "B10D0330B8974D3F8361E6CF55A62388", "tracked": false, "time": "2026-09-30 13:32:08.967", "msg": "WhatsApp message ACK accepted"}
+{"messageID": "4BBA6FFE0E3F4AA4B4204CB372102B72", "timeoutMs": 8000, "time": "2026-09-30 13:32:09.029", "msg": "WhatsApp message ACK timeout"}
+{"messageID": "E53D90929ED34A229E15769C9AA1CB85", "tracked": false, "time": "2026-09-30 13:32:09.207", "msg": "WhatsApp message ACK accepted"}
+{"messageID": "99A281F1AF684F98AB5D4D7FA820DB85", "tracked": false, "time": "2026-09-30 13:32:09.457", "msg": "WhatsApp message ACK accepted"}
+{"messageID": "E55A499099944DBFA052973AD5E70976", "tracked": false, "time": "2026-09-30 13:32:12.837", "msg": "WhatsApp message ACK accepted"}
+{"messageID": "4BBA6FFE0E3F4AA4B4204CB372102B72", "tracked": false, "time": "2026-09-30 13:32:16.092", "msg": "WhatsApp message ACK accepted"}
+{"traceId": "289f4f41acc14b0088b157d4d78789b5", "messageId": "armada.perf.protocol.android.message.commands.v1:8:227170", "time": "2026-09-30 21:31:27.037", "msg": "Armada Zhuan account message dispatched"}
+{"messageID": "CA09CEC7C4714C958E7D7DEF95718CDD", "tracked": true, "time": "2026-09-30 21:31:28.155", "msg": "WhatsApp message ACK accepted"}
+{"traceId": "8705ea4c74b046d9a9e03168c81cbc39", "messageId": "armada.perf.protocol.android.message.commands.v1:5:373997", "time": "2026-09-30 21:32:04.753", "msg": "Armada Zhuan account message dispatched"}
+{"traceId": "9d92672911864c23a5e11d003b77db2d", "messageId": "armada.perf.protocol.android.message.commands.v1:5:373999", "time": "2026-09-30 21:32:05.256", "msg": "Armada Zhuan account message dispatched"}
+{"messageID": "BC4F13BA720940AC998A8DA22B60681F", "tracked": true, "time": "2026-09-30 21:32:05.539", "msg": "WhatsApp message ACK accepted"}
+{"traceId": "88dcb9bf67fa49619ceda1bb496cc30a", "messageId": "armada.perf.protocol.android.message.commands.v1:5:373998", "time": "2026-09-30 21:32:05.759", "msg": "Armada Zhuan account message dispatched"}
+{"messageID": "C39E8895AF6E4A64A1DC52D61F768661", "tracked": true, "time": "2026-09-30 21:32:06.027", "msg": "WhatsApp message ACK accepted"}
+{"messageID": "AD76DD8A1013486CBB315686DAF34605", "tracked": true, "time": "2026-09-30 21:32:06.427", "msg": "WhatsApp message ACK accepted"}
+{"counts": {"Armada Zhuan account message dispatched": 14, "WhatsApp message ACK accepted": 14, "WhatsApp message ACK timeout": 6}, "printed": 34}
+{"pattern": "events-20260930-13*", "files": [{"name": "events-20260930-13.jsonl", "size": 17907981}]}
+{"pattern": "messages-20260930*", "files": []}
+{"pattern": "*20260930*", "files": [{"name": "events-20260930-00.jsonl", "size": 107038640}, {"name": "events-20260930-01.jsonl", "size": 100234071}, {"name": "events-20260930-02.jsonl", "size": 90697050}, {"name": "events-20260930-03.jsonl", "size": 80575169}, {"name": "events-20260930-04.jsonl", "size": 80139737}, {"name": "events-20260930-05.jsonl", "size": 82858011}, {"name": "events-20260930-06.jsonl", "size": 83881031}, {"name": "events-20260930-07.jsonl", "size": 79748426}, {"name": "events-20260930-08.jsonl", "size": 64511332}, {"name": "events-20260930-09.jsonl", "size": 1682883}, {"name": "events-20260930-10.jsonl", "size": 1478189}, {"name": "events-20260930-11.jsonl", "size": 1254177}, {"name": "events-20260930-12.jsonl", "size": 2629325}, {"name": "events-20260930-13.jsonl", "size": 17907981}, {"name": "events-20260930-14.jsonl", "size": 7807577}, {"name": "events-20260930-15.jsonl", "size": 6687508}, {"name": "events-20260930-16.jsonl", "size": 5338637}, {"name": "events-20260930-17.jsonl", "size": 4997965}, {"name": "events-20260930-18.jsonl", "size": 4026361}, {"name": "events-20260930-19.jsonl", "size": 3705033}, {"name": "events-20260930-20.jsonl", "size": 3456176}, {"name": "events-20260930-21.jsonl", "size": 3293598}, {"name": "events-20260930-22.jsonl", "size": 3365036}, {"name": "events-20260930-23.jsonl", "size": 3718213}]}

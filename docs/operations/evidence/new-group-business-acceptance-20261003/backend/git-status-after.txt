@@ -1,0 +1,54 @@
+ m .claude/worktrees/agent-af50e0bc4d135f5c8
+ ? .claude/worktrees/wf_ca150a80-294-1
+ M .codegraph/daemon.pid
+ M armada-deploy/deploy-test-win.sh
+ M armada-deploy/deploy-test.sh
+ M armada-deploy/deploy-test.test.sh
+ M armada-deploy/envs/test1.conf
+ M armada-deploy/staging-accept/wrappers/cloudwatch-observer-client.py
+ M armada-deploy/staging-accept/wrappers/runner-deep-check.py
+ M armada-deploy/staging-accept/wrappers/test1-quick.py
+ M armada-deploy/staging-accept/wrappers/test1-quick.test.py
+ M armada-deploy/staging-accept/wrappers/test1-soak.py
+ M armada-deploy/staging-accept/wrappers/test1-soak.test.py
+ M armada-deploy/staging-accept/wrappers/test_cloudwatch_observer_client.py
+ M armada-deploy/staging-accept/wrappers/test_runner_deep_check.py
+?? docs/business/evidence/
+?? docs/operations/evidence/batch-create-20260914/
+?? docs/operations/evidence/batch-create-parallel-20260914/
+?? docs/operations/evidence/cloud-registration-test1-20260917/
+?? docs/operations/evidence/full-release-20260919.md
+?? docs/operations/evidence/full-release-test1-perf2-20261003/
+?? docs/operations/evidence/group-event-backlog-20260914/
+?? docs/operations/evidence/hyperlink-click-20260915/
+?? docs/operations/evidence/hyperlink-failures-perf2-20260918/
+?? docs/operations/evidence/hyperlink-render-perf2-20260916/
+?? docs/operations/evidence/ios-full-params-perf2-20260916/
+?? docs/operations/evidence/kafka-poll10-20260914/
+?? docs/operations/evidence/marketing-body-perf2-20260917.md
+?? docs/operations/evidence/normal-group-fresh-form-test1-perf2-20260929.md
+?? docs/operations/evidence/perf2-account-auth-20260928/
+?? docs/operations/evidence/perf2-account-lock-20260917.md
+?? docs/operations/evidence/perf2-direct-link-20260919.md
+?? docs/operations/evidence/perf2-direct-link-ui-20260919.md
+?? docs/operations/evidence/perf2-group-creator-20260917/
+?? docs/operations/evidence/perf2-group-info-20260918/
+?? docs/operations/evidence/perf2-group-link-20260919/
+?? docs/operations/evidence/perf2-hyperlink-463-deploy-20260918.md
+?? docs/operations/evidence/perf2-hyperlink-timeout-deploy-20260918.md
+?? docs/operations/evidence/perf2-hyperlink14-account-replenish-20260918.md
+?? docs/operations/evidence/perf2-hyperlink15-pause-failures-20260918.md
+?? docs/operations/evidence/perf2-hyperlink17-20260919/
+?? docs/operations/evidence/perf2-main-full-20260918.md
+?? docs/operations/evidence/perf2-marketing-307-20261002/
+?? docs/operations/evidence/perf2-normal-group-task11-20260929.md
+?? docs/operations/evidence/perf2-normal-group-task11-appstate-20260929.json
+?? docs/operations/evidence/perf2-normal-group-task11-binary-check-20260929.json
+?? docs/operations/evidence/perf2-normal-group-task11-log-focus-20260929.json
+?? docs/operations/evidence/perf2-normal-group-task11-log-history-20260929.json
+?? docs/operations/evidence/perf2-online-parser-20260917.md
+?? docs/operations/evidence/perf2-pull-task-26-waiting-20260917.md
+?? docs/operations/evidence/perf2-pull-task-36-waiting-20260918.md
+?? docs/operations/evidence/perf2-pull-unknown-retry-20260919.md
+?? docs/operations/evidence/perf2-puller-xa710-20260917.md
+?? docs/operations/evidence/phone-jid-perf2-20260916/

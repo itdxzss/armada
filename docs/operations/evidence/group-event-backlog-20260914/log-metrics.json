@@ -1,0 +1,225 @@
+{
+  "window_utc": [
+    "2026-09-14T02:17:00",
+    "2026-09-14T02:41:00"
+  ],
+  "counts": {
+    "profile": 397,
+    "invite_fact": 56,
+    "poll_timeout": 7,
+    "participant": 1073
+  },
+  "unique_event_ids": 1462,
+  "reprocessed_occurrences": 8,
+  "repeated_event_ids": 8,
+  "profile_group_count": 54,
+  "profile_latency_seconds": {
+    "n": 397,
+    "min": 1.213,
+    "median": 646.722,
+    "p95": 1309.477,
+    "max": 1372.344
+  },
+  "handler_to_next_event_gap_seconds_NOT_exact_handler_duration": {
+    "profile": {
+      "n": 389,
+      "min": 2.535,
+      "median": 4.599,
+      "p95": 10.231,
+      "max": 18.668
+    },
+    "participant": {
+      "n": 1073,
+      "min": 0.11,
+      "median": 0.309,
+      "p95": 2.249,
+      "max": 5.725
+    }
+  },
+  "top_group_profile_counts_anonymous": [
+    {
+      "profile_count": 17,
+      "distinct_reporting_accounts": 15
+    },
+    {
+      "profile_count": 16,
+      "distinct_reporting_accounts": 15
+    },
+    {
+      "profile_count": 16,
+      "distinct_reporting_accounts": 15
+    },
+    {
+      "profile_count": 16,
+      "distinct_reporting_accounts": 15
+    },
+    {
+      "profile_count": 15,
+      "distinct_reporting_accounts": 15
+    },
+    {
+      "profile_count": 15,
+      "distinct_reporting_accounts": 15
+    },
+    {
+      "profile_count": 15,
+      "distinct_reporting_accounts": 15
+    },
+    {
+      "profile_count": 15,
+      "distinct_reporting_accounts": 15
+    },
+    {
+      "profile_count": 15,
+      "distinct_reporting_accounts": 15
+    },
+    {
+      "profile_count": 15,
+      "distinct_reporting_accounts": 15
+    },
+    {
+      "profile_count": 13,
+      "distinct_reporting_accounts": 13
+    },
+    {
+      "profile_count": 13,
+      "distinct_reporting_accounts": 13
+    }
+  ],
+  "minutes": {
+    "02:17": {
+      "profile": 5
+    },
+    "02:18": {
+      "profile": 24,
+      "invite_fact": 6
+    },
+    "02:19": {
+      "profile": 23,
+      "invite_fact": 7
+    },
+    "02:20": {
+      "profile": 23,
+      "invite_fact": 1
+    },
+    "02:21": {
+      "profile": 22
+    },
+    "02:22": {
+      "profile": 21,
+      "poll_timeout": 2
+    },
+    "02:23": {
+      "poll_timeout": 1,
+      "profile": 7,
+      "participant": 103
+    },
+    "02:24": {
+      "participant": 29,
+      "profile": 16,
+      "invite_fact": 5
+    },
+    "02:25": {
+      "participant": 59,
+      "profile": 13,
+      "invite_fact": 2
+    },
+    "02:26": {
+      "profile": 14,
+      "participant": 61,
+      "invite_fact": 3
+    },
+    "02:27": {
+      "profile": 17,
+      "invite_fact": 4,
+      "participant": 20
+    },
+    "02:28": {
+      "poll_timeout": 1,
+      "profile": 16,
+      "participant": 12,
+      "invite_fact": 2
+    },
+    "02:29": {
+      "participant": 50,
+      "profile": 12,
+      "invite_fact": 1
+    },
+    "02:30": {
+      "participant": 132,
+      "profile": 13,
+      "invite_fact": 3
+    },
+    "02:31": {
+      "participant": 84,
+      "profile": 18,
+      "invite_fact": 3
+    },
+    "02:32": {
+      "profile": 23,
+      "participant": 37,
+      "invite_fact": 2
+    },
+    "02:33": {
+      "profile": 16,
+      "poll_timeout": 2,
+      "invite_fact": 4,
+      "participant": 53
+    },
+    "02:34": {
+      "profile": 14,
+      "participant": 37,
+      "invite_fact": 3
+    },
+    "02:35": {
+      "profile": 16,
+      "participant": 28,
+      "invite_fact": 4
+    },
+    "02:36": {
+      "participant": 71,
+      "profile": 12,
+      "invite_fact": 2
+    },
+    "02:37": {
+      "profile": 18,
+      "invite_fact": 4,
+      "participant": 34
+    },
+    "02:38": {
+      "poll_timeout": 1,
+      "profile": 25,
+      "participant": 4
+    },
+    "02:39": {
+      "profile": 10,
+      "participant": 185
+    },
+    "02:40": {
+      "participant": 74,
+      "profile": 19
+    }
+  },
+  "deadlock_blocks": [
+    {
+      "time_utc": "2026-09-14T02:17:50.582Z",
+      "consumer_thread": "KafkaListenerEndpointContainer#2-0-C-1",
+      "mapper": "group/GroupLinkMapper.xml"
+    },
+    {
+      "time_utc": "2026-09-14T02:17:50.583Z",
+      "consumer_thread": "KafkaListenerEndpointContainer#2-1-C-1",
+      "mapper": "group/GroupLinkMapper.xml"
+    },
+    {
+      "time_utc": "2026-09-14T02:17:50.583Z",
+      "consumer_thread": "KafkaListenerEndpointContainer#2-1-C-1",
+      "mapper": "group/GroupLinkMapper.xml"
+    },
+    {
+      "time_utc": "2026-09-14T02:17:50.583Z",
+      "consumer_thread": "KafkaListenerEndpointContainer#2-1-C-1",
+      "mapper": "group/GroupLinkMapper.xml"
+    }
+  ]
+}

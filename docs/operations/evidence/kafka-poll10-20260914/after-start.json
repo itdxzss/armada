@@ -1,0 +1,29 @@
+{
+  "observedAt": "2026-09-14T03:30:07.581867+00:00",
+  "containerStartedAt": "2026-09-14T03:28:04.36218119Z",
+  "lag": 15692,
+  "partitions": [
+    {
+      "partition": 0,
+      "current": 822001,
+      "end": 825192,
+      "lag": 3191,
+      "assigned": true
+    },
+    {
+      "partition": 2,
+      "current": 1150085,
+      "end": 1156375,
+      "lag": 6290,
+      "assigned": true
+    },
+    {
+      "partition": 1,
+      "current": 1440207,
+      "end": 1446418,
+      "lag": 6211,
+      "assigned": true
+    }
+  ],
+  "rebalancingWarning": false
+}

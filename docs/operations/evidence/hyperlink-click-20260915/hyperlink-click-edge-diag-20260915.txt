@@ -1,0 +1,33 @@
+RUNTIME {"Status": "running", "StartedAt": "2026-09-14T17:43:05.346768166Z"}
+PUBLIC_BASE "http://armada.65.2.123.53.nip.io"
+TASK26_PROTOCOL_AND_CONTENT
+hyperlink_task_id	protocol_backend	protocol_id	recipients	single_check	double_check	accounts	first_submit_utc	last_submit_utc
+26	2	ANDROID	57	52	44	1	2026-09-14 22:58:09.2990	2026-09-14 22:59:14.4140
+
+TARGET_BUTTON_SHAPE
+hyperlink_task_id	button_type	tracking	content_len	card_text_len	content_has_url	card_text_has_url
+1	["CTA_URL"]	[true]	2	NULL	0	NULL
+26	["CTA_URL"]	[true]	NULL	517	NULL	0
+
+EDGE_PROBE {"scheme": "http", "connect_host": "172.31.13.65", "ignore_cert_for_diagnosis": false, "exit": 0, "headers": "HTTP/1.1 404 \nServer: nginx/1.27.5\nDate: Tue, 15 Sep 2026 02:15:05 GMT\nContent-Length: 0\nConnection: keep-alive\nX-Trace-Id: b3f514d5af3f443f96a0065d86efc001\nX-Content-Type-Options: nosniff\nX-XSS-Protection: 0\nCache-Control: no-cache, no-store, max-age=0, must-revalidate\nPragma: no-cache\nExpires: 0\nX-Frame-Options: DENY\n\nstatus=404 tls=0\n", "error": ""}
+EDGE_PROBE {"scheme": "http", "connect_host": "65.2.123.53", "ignore_cert_for_diagnosis": false, "exit": 28, "headers": "status=000 tls=0\n", "error": "curl: (28) Connection timed out after 4002 milliseconds\n"}
+EDGE_PROBE {"scheme": "https", "connect_host": "127.0.0.1", "ignore_cert_for_diagnosis": false, "exit": 60, "headers": "status=000 tls=1\n", "error": "curl: (60) SSL: no alternative certificate subject name matches target hostname 'armada.65.2.123.53.nip.io'\nMore details here: https://curl.se/docs/sslcerts.html\n\ncurl failed to verify the legitimacy of the server and therefore could not\nestablish a secure connection to it. To learn more about this situation and\nhow to fix it, please visit the webpage mentioned above.\n"}
+EDGE_PROBE {"scheme": "https", "connect_host": "127.0.0.1", "ignore_cert_for_diagnosis": true, "exit": 0, "headers": "HTTP/1.1 404 Not Found\nServer: nginx\nDate: Tue, 15 Sep 2026 02:15:09 GMT\nContent-Type: application/json\nContent-Length: 29\nConnection: keep-alive\nCache-Control: no-store\nX-Content-Type-Options: nosniff\n\nstatus=404 tls=20\n", "error": ""}
+TLS_CERTIFICATE "subject=CN=ingest.65.2.123.53.nip.io\nissuer=C=US, O=Let's Encrypt, CN=YE1\nX509v3 Subject Alternative Name: \n    DNS:ingest.65.2.123.53.nip.io\nnotBefore=Sep  7 00:41:39 2026 GMT\nnotAfter=Dec  6 00:41:38 2026 GMT\n"
+BACKEND_LOG_FILE {"path": "/home/app/armada-deploy/logs/backend/armada-api.log.2026-09-13.0.gz", "bytes": 62168118}
+BACKEND_LOG_FILE {"path": "/home/app/armada-deploy/logs/backend/armada-api.log.2026-09-14.0.gz", "bytes": 23881281}
+BACKEND_LOG_FILE {"path": "/home/app/armada-deploy/logs/backend/armada-api.log.2026-09-08.0.gz", "bytes": 25734590}
+BACKEND_LOG_FILE {"path": "/home/app/armada-deploy/logs/backend/armada-api.log", "bytes": 26814898}
+BACKEND_LOG_FILE {"path": "/home/app/armada-deploy/logs/backend/armada-api.log.2026-09-06.0.gz", "bytes": 18645971}
+BACKEND_LOG_FILE {"path": "/home/app/armada-deploy/logs/backend/armada-api.log.2026-09-07.0.gz", "bytes": 15172886}
+BACKEND_LOG_FILE {"path": "/home/app/armada-deploy/logs/backend/armada-api.log.2026-09-12.1.gz", "bytes": 48795684}
+BACKEND_LOG_FILE {"path": "/home/app/armada-deploy/logs/backend/armada-api.log.2026-09-10.0.gz", "bytes": 12926824}
+BACKEND_LOG_FILE {"path": "/home/app/armada-deploy/logs/backend/armada-api.log.2026-09-13.1.gz", "bytes": 13918222}
+BACKEND_LOG_FILE {"path": "/home/app/armada-deploy/logs/backend/armada-api.log.2026-09-11.0.gz", "bytes": 42090848}
+BACKEND_LOG_FILE {"path": "/home/app/armada-deploy/logs/backend/armada-api.log.2026-09-12.2.gz", "bytes": 4697287}
+BACKEND_LOG_FILE {"path": "/home/app/armada-deploy/logs/backend/armada-api.log.2026-09-09.0.gz", "bytes": 30035624}
+BACKEND_LOG_FILE {"path": "/home/app/armada-deploy/logs/backend/armada-api.log.2026-09-11.1.gz", "bytes": 1894363}
+BACKEND_LOG_FILE {"path": "/home/app/armada-deploy/logs/backend/armada-api.log.2026-09-12.0.gz", "bytes": 34265779}
+BACKEND_LOG_FILE {"path": "/home/app/armada-deploy/logs/backend/armada-api.log.2026-09-05.0.gz", "bytes": 19853571}
+BACKEND_ARTIFACT "de381379e3ff09b055a9c5ba7367800e70c5164ee151ed01e5fb755bf88827d0  /app/app.jar\n"
+RECENT_EDGE_CLICK_ERRORS []

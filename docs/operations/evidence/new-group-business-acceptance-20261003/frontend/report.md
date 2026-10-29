@@ -1,0 +1,51 @@
+Armada NEW_GROUP 前端只读验收
+时间：2026-10-03（Asia/Shanghai）
+工作目录：/Users/daishuaishuai/IdeaProjects/wheel-saas-pure-web
+HEAD：583caf513c8f9075094f6122ac7e39ed578f5228
+源码有既存未提交修改，结果针对当前工作树，不代表远程部署内容。已读 AGENTS.md 和 .harness/agents/owner.md。没有修改代码、安装依赖、连接远程或操作浏览器。
+
+当前源码规则
+- standard-create-policy.ts:28-45：NEW_GROUP 强制群资料开启、BEFORE_PULL、禁止料子文件名群名、前期固定拉人执行次数0；默认人数1–3，间隔10–15秒。
+- standard-create-policy.ts:49-99：校验整数与有序范围；trim 后群名1–100、简介1–1024；旧群链接模式在第87行返回，不受NEW_GROUP资料必填限制。
+- composables/useStandardPullTaskCreate.ts:242-255,288-298：切换和恢复NEW_GROUP草稿时强制资料策略。
+- composables/useStandardPullTaskCreate.ts:600-654：创建前再次校验，并trim群名/简介后序列化；空值在旧模式变null。
+- components/PullTaskStandardGroupSettings.vue:38,47-59,71-83,104-115：NEW_GROUP资料开关与时机禁用，群名和简介必填，输入限长100/1024，文件名开关仅旧模式显示。
+- components/PullTaskStandardSettings.vue:208-254,284-305：NEW_GROUP人数与间隔输入范围受限，隐藏前期固定人数/次数控件。
+- 以上为配置门槛，真实群资料回读和拉料子门槛属于后端/协议端，前端不提供业务成功证据。
+
+本次运行现有针对性测试
+命令：node --import tsx --import ./src/api/__tests__/node-test-alias.mjs --test src/views/task/pull-task/standard-create-policy.test.ts src/views/task/pull-task/composables/useStandardPullTaskCreate.test.ts src/views/task/pull-task/composables/useStandardPullTaskDataPackages.test.ts src/views/task/pull-task/components/PullTaskStandardCreateLayout.test.ts src/api/pull-task.test.ts
+运行器：本机已有Node v23.11.0；未安装/调整依赖。
+结果：56 tests, 5 suites, pass 56, fail 0, skipped 0, exit 0；日志 tests.tap。
+- useStandardPullTaskCreate.test.ts:167-225 的循环覆盖15种非法配置，断言调用创建函数后API调用为0：空白群名、101字符群名、空白简介、1025字符简介、资料关闭、AFTER_PULL、文件名作群名、前期次数2、人数上限4、人数非整数、人数倒序、间隔低于10/高于15/倒序/NaN。
+- 同文件:105-165 覆盖草稿恢复、模式切换保持原模式参数。
+- 同文件:433-487 覆盖NEW_GROUP计划及创建payload，含明确群名、多行简介、BEFORE_PULL、禁止文件名、首次即范围拉人、随机间隔。
+- 同文件:935-955 覆盖旧链接模式资料关闭仍可提交；静态布局测试保留旧模式可选资料文案。
+- standard-create-policy.test.ts 覆盖历史固定间隔与随机范围展示。
+- 这些是源码/状态单元测试及静态组件模板断言，不是真浏览器或真协议验证。
+
+覆盖缺口
+- 未有实际挂载组件/浏览器操作断言NEW_GROUP空白、超长阻止创建。
+- 本次选中现有测试没有明确验证100/1024精确上界接受、外围空白trim后接受；源码有对应逻辑。
+- 旧链接模式资料开启且群名/简介都留空没有专门具名断言（资料关闭兼容已覆盖）。
+- 回读不一致、查询失败/超时保群暂停、凭证缺失拉人拦截、旧命令/尝试隔离、UNKNOWN实际回读决策均需后端测试和真环境证据。
+- 未新增测试、未运行会写文件的lint脚本。当前仅验收未提交代码，未再次全仓build/typecheck。
+
+真实页面与请求字段
+入口：/#/task/pull → 新建拉群任务 → 新群模式。NEW_GROUP不是 /task/pull-task/create 建群营销页面。
+入口源码：index.vue:149-156,305-311；PullTaskCreateDrawer.vue:129-139。最终菜单来源须以实际租户菜单为准。
+页面要求：建群人分组creatorGroupId、管理分组managerGroupId、拉手分组pullerGroupId；拉手数量pullerCountPerGroup默认2，本次必须改1；建群时初始站台数initialStationCount=0；站台数量/次stationCountPerCall=0。分组内最终选号须读取执行记录确认。
+群信息：groupSetting.enabled=true, settingTiming=BEFORE_PULL, groupName=<带时间标识>, groupDescription=<带时间标识>, useMaterialFileNameAsGroupName=false。
+拉人：earlyPullCallCount=0,pullCountMin=1,pullCountMax=3,pullIntervalSeconds=10,pullIntervalMaxSeconds=15；concurrentGroupCount=1。
+其余默认：creatorLeaveAfterPull=false,clearExistingMembers=false,pullerJoinByLink=false,pullerSyncMode=SINGLE,materialAdminTiming=2,autoCloseMuteAfterTask=false,autoCloseInviteAfterTask=false,editPermission=UNCHANGED,muteMode=UNCHANGED,disappearingMessage=UNCHANGED。不包含营销参数。
+每份有效TXT对应1个新群，单环境1群应仅上传1份受控文件。上传触发POST /api/pull-tasks/standard/draft/plan（FormData，creationMode=NEW_GROUP，linksText为空，files）；创建调用POST /api/pull-tasks/standard。见src/api/pull-task.ts:988-1008,1081-1087。
+注意：创建先ensureExecutionPlan后配置校验，未规划资源时即使资料不合法，也可能先产生草稿，但不会提交实际创建任务；useStandardPullTaskCreate.ts:698-706。
+
+受控料子检查
+在前端仓库 e2e/.harness/docs/src 中搜索受控、测试料、controlled、TEST_PHONE、TEST*NUMBER，没有找到具备真实受控号码授权的fixture或文档。
+现有e2e/pull-task-group-setting.spec.ts:9-12要求独立Docker E2E环境；:136-149关闭自动启动并算法生成占位料子。这些不是可用于test1/perf2的受控号码，未使用。
+
+
+补充：模式切换后 spinbutton ARIA 范围陈旧
+
+父代理真页面发现切换PASTED_LINK→NEW_GROUP后input显示1/3，但第二个aria-valuemin仍为50、aria-valuemax仍为Number.MAX_SAFE_INTEGER。当前源码定位：Element Plus 2.11.5的node_modules/element-plus/es/components/input-number/src/input-number.mjs:251-280仅onMounted写aria-valuemin/max，onUpdated只更新aria-valuenow。当前业务模板PullTaskStandardSettings.vue:210-223的min/max是动态props；组件:37、129-180的disabled/增减/verifyValue均实时读取props。由源码判断是辅助技术属性滞后，不应改变业务校验或实际增减，真实交互结果由父代理验证；本次未修复。

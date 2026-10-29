@@ -1,0 +1,29 @@
+{
+  "armada": {
+    "headUnchanged": true,
+    "trackedDiffUnchanged": true,
+    "newStatusLines": [
+      "?? .harness/changes/2026-10-07-creator-deletion-impact-audit.md",
+      "?? docs/operations/evidence/creator-deletion-impact-perf2-20261007/"
+    ],
+    "removedStatusLines": []
+  },
+  "wheel-saas-pure-web": {
+    "headUnchanged": true,
+    "trackedDiffUnchanged": true,
+    "newStatusLines": [],
+    "removedStatusLines": []
+  },
+  "whatsapp-server-feature-android-zhuan": {
+    "headUnchanged": true,
+    "trackedDiffUnchanged": true,
+    "newStatusLines": [],
+    "removedStatusLines": []
+  },
+  "armada-protocol": {
+    "headUnchanged": true,
+    "trackedDiffUnchanged": true,
+    "newStatusLines": [],
+    "removedStatusLines": []
+  }
+}

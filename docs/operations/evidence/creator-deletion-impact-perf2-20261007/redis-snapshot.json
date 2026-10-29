@@ -1,0 +1,45 @@
+{
+  "observedUtc": "2026-10-06T23:26:58.168623+00:00",
+  "prefix": "android-zhuan-perf:",
+  "mastersScanned": 1,
+  "scanComplete": true,
+  "scanCalls": 1189,
+  "keysCount": 2,
+  "counts": {
+    "ACCEPTED": 2
+  },
+  "records": [
+    {
+      "identityHashPrefix": "49b5c982bb46",
+      "accountId": 1736,
+      "state": "ACCEPTED",
+      "ttl": -1,
+      "hasTaskBinding": false,
+      "taskBinding": null,
+      "hasIQId": true,
+      "responseType": "result",
+      "errorCode": "",
+      "createdAt": 1791257607637,
+      "updatedAt": 1791257609499,
+      "ageSeconds": 71610
+    },
+    {
+      "identityHashPrefix": "d85639dc2718",
+      "accountId": 1038,
+      "state": "ACCEPTED",
+      "ttl": -1,
+      "hasTaskBinding": false,
+      "taskBinding": null,
+      "hasIQId": true,
+      "responseType": "result",
+      "errorCode": "",
+      "createdAt": 1791212800611,
+      "updatedAt": 1791212802228,
+      "ageSeconds": 116417
+    }
+  ],
+  "missingSampleIds": [
+    2755,
+    2757
+  ]
+}

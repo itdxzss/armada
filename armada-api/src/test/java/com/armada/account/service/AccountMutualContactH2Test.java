@@ -104,6 +104,16 @@ class AccountMutualContactH2Test {
         assertThat(mapper.countItems(id, new AccountMutualContactQuery())).isEqualTo(12);
     }
     @Test
+    void onlineGrabStatesParticipateButBannedDoesNot() {
+        jdbc.update("UPDATE account_state SET account_state=6 WHERE account_id=1");
+        jdbc.update("UPDATE account_state SET account_state=7 WHERE account_id=2");
+        jdbc.update("UPDATE account_state SET account_state=3 WHERE account_id=3");
+        long id = create(0);
+        assertThat(mapper.stats(id).total()).isEqualTo(8);
+        tx.executeWithoutResult(s -> runner.dispatch(new AccountMutualContactWork(7L, id, 1L), 1000));
+        verify(outbox, times(1)).enqueue(any());
+    }
+    @Test
     void invalidatesPreviewAndIsolatesTenantAndOwner() {
         var req = request("preview-stale-key-01", 0);
         jdbc.update("UPDATE account_state SET login_state=2 WHERE account_id=1");

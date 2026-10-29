@@ -7,9 +7,13 @@ import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.security.AuthPrincipal;
 import com.armada.shared.tenant.TenantContext;
 import java.util.Objects;
+import java.util.Set;
 /** 互存任务身份和执行账号访问边界。 */
 public final class AccountMutualContactAccess {
     private static final int RISK_NORMAL = 1;
+    /** 只要在线即可参与：正常、被抢登、抢登中三种状态都放行。 */
+    private static final Set<Integer> ALLOWED_STATES =
+            Set.of(AccountStateCode.NORMAL, AccountStateCode.LOGIN_REPLACED, AccountStateCode.TAKING_OVER);
     private AccountMutualContactAccess() {}
     public static boolean admin(AuthPrincipal p) {
         return p.roleCodes().contains("TENANT_ADMIN");
@@ -23,7 +27,7 @@ public final class AccountMutualContactAccess {
         return a != null && (admin(p) || a.ownerUserId() == null || Objects.equals(a.ownerUserId(), p.userId()));
     }
     public static boolean eligible(AccountMutualContactCandidate a) {
-        return a != null && Integer.valueOf(AccountStateCode.NORMAL).equals(a.accountState())
+        return a != null && ALLOWED_STATES.contains(a.accountState())
                 && Integer.valueOf(AccountLoginStateCode.ONLINE).equals(a.loginState())
                 && (a.riskStatus() == null || a.riskStatus() == RISK_NORMAL) && a.muteStatus() == null
                 && a.wsPhone() != null && a.wsPhone().matches("[1-9][0-9]{5,19}") && a.protocolAccountId() != null

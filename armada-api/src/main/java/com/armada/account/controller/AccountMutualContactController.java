@@ -65,7 +65,7 @@ public class AccountMutualContactController {
         service.stop(id, p);
         return ApiResponse.ok();
     }
-    /** 仅将明确可重试失败项重新排队。 */
+    /** 将可重试失败项与待确认项重新排队；联系人保存按号码覆盖，重做无副作用叠加。 */
     @PostMapping("/{id}/retry-failed")
     @PreAuthorize("hasAuthority('tenant:account:edit')")
     public ApiResponse<Integer> retry(@PathVariable Long id, @AuthenticationPrincipal AuthPrincipal p) {

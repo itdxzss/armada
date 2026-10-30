@@ -52,7 +52,7 @@
  <update id="updateItem">UPDATE account_mutual_contact_item SET status=#{status},command_id=#{commandId},attempt_no=#{attemptNo},retryable=#{retryable},reason_code=#{reasonCode},submitted_at=#{submittedAt},result_at=#{resultAt},next_execute_at=#{nextExecuteAt},updated_at=#{updatedAt} WHERE id=#{id}</update>
  <update id="setTaskStatus">UPDATE account_mutual_contact_task SET status=#{status},updated_at=#{now} WHERE id=#{id}</update>
  <update id="cancelPending">UPDATE account_mutual_contact_item SET status=6,reason_code='TASK_STOPPED',updated_at=#{now} WHERE task_id=#{taskId} AND status=1</update>
- <update id="retryFailed">UPDATE account_mutual_contact_item SET status=1,reason_code=NULL,updated_at=#{now} WHERE task_id=#{taskId} AND status=4 AND retryable=1</update>
+ <update id="retryFailed">UPDATE account_mutual_contact_item SET status=1,reason_code=NULL,updated_at=#{now} WHERE task_id=#{taskId} AND ((status=4 AND retryable=1) OR status=5)</update>
  <update id="expireSubmitted">UPDATE account_mutual_contact_item SET status=5,reason_code='RESULT_TIMEOUT',updated_at=#{now} WHERE task_id=#{taskId} AND status=2 AND submitted_at&lt;=#{deadline}</update>
  <select id="scan" resultType="com.armada.account.model.dto.AccountMutualContactWork">
   SELECT i.tenant_id,i.task_id,i.actor_id FROM account_mutual_contact_item i

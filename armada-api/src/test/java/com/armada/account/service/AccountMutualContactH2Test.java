@@ -157,7 +157,7 @@ class AccountMutualContactH2Test {
         assertThat(mapper.item(reverse.getId()).getStatus()).isEqualTo(1);
     }
     @Test
-    void stopDoesNotLoseLateResultAndUnknownIsNeverRetried() {
+    void stopDoesNotLoseLateResult() {
         long id = create(0);
         tx.executeWithoutResult(s -> runner.dispatch(new AccountMutualContactWork(7L, id, 1L), 1000));
         var sent = mapper.items(id, new AccountMutualContactQuery())
@@ -169,10 +169,33 @@ class AccountMutualContactH2Test {
         assertThat(mapper.stats(id).canceled()).isEqualTo(11);
         tx.executeWithoutResult(s -> runner.expire(id, 1001, 2000));
         assertThat(mapper.item(sent.getId()).getStatus()).isEqualTo(5);
-        assertThat(tx.<Integer>execute(s -> service.retry(id, admin))).isZero();
         apply(id, sent.getId(), sent.getCommandId(), 1L, "SUCCESS", false);
         assertThat(mapper.stats(id).success()).isEqualTo(1);
         assertThat(mapper.task(id).getStatus()).isEqualTo(2);
+    }
+    @Test
+    void unknownIsManuallyRetriedWithNewCommandAndOldReceiptIgnored() {
+        long id = create(0);
+        var work = new AccountMutualContactWork(7L, id, 1L);
+        tx.executeWithoutResult(s -> runner.dispatch(work, 1000));
+        var sent = mapper.items(id, new AccountMutualContactQuery())
+                           .stream()
+                           .filter(i -> i.getStatus() == 2)
+                           .findFirst()
+                           .orElseThrow();
+        tx.executeWithoutResult(s -> service.stop(id, admin));
+        tx.executeWithoutResult(s -> runner.expire(id, 1001, 2000));
+        assertThat(tx.<Integer>execute(s -> service.retry(id, admin))).isEqualTo(1);
+        assertThat(mapper.item(sent.getId()).getStatus()).isEqualTo(1);
+        assertThat(mapper.task(id).getStatus()).isEqualTo(1);
+        apply(id, sent.getId(), sent.getCommandId(), 1L, "SUCCESS", false); // 旧命令晚到回执不能结算重派前状态。
+        assertThat(mapper.item(sent.getId()).getStatus()).isEqualTo(1);
+        long ready = mapper.item(sent.getId()).getNextExecuteAt();
+        tx.executeWithoutResult(s -> runner.dispatch(work, Math.max(ready, 2000)));
+        var resent = mapper.item(sent.getId());
+        assertThat(resent.getStatus()).isEqualTo(2);
+        assertThat(resent.getAttemptNo()).isEqualTo(2);
+        assertThat(resent.getCommandId()).isNotEqualTo(sent.getCommandId());
     }
     @Test
     void unknownResultDoesNotBlockActorFromNextDirection() {

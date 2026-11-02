@@ -466,7 +466,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                     accountId,
                     protocolAccountId,
                     new ProtocolOfflineCommandRequest(accountId, protocolAccountId, SOURCE_BATCH_OFFLINE,
-                            protocolBackend)));
+                            protocolBackend, false)));
         }
 
         ProtocolCommandOutboxEnqueueResult enqueueResult = protocolCommandOutboxService.enqueueOfflineCommands(

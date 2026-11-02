@@ -1482,7 +1482,8 @@ public class ProtocolCommandOutboxServiceImpl
                 command.accountId(),
                 command.protocolAccountId(),
                 command.source(),
-                command.protocolBackend());
+                command.protocolBackend(),
+                command.purgeCredentials() ? Boolean.TRUE : null);
         try {
             return objectMapper.writeValueAsString(payload);
         } catch (JsonProcessingException ex) {
@@ -2301,11 +2302,14 @@ public class ProtocolCommandOutboxServiceImpl
     ) {
     }
 
+    /** purgeCredentials 只在导出时出现;普通下线不写这个字段,协议按缺省(保留数据)处理。 */
     private record ProtocolOfflineCommandPayload(
             Long accountId,
             String protocolAccountId,
             String source,
-            ProtocolBackend protocolBackend
+            ProtocolBackend protocolBackend,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            Boolean purgeCredentials
     ) {
     }
 

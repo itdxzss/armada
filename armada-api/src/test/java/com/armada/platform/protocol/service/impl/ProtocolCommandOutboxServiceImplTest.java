@@ -1075,7 +1075,8 @@ class ProtocolCommandOutboxServiceImplTest {
                 100L,
                 "acc_100",
                 "batch_offline",
-                ProtocolBackend.ANDROID);
+                ProtocolBackend.ANDROID,
+                false);
         when(mapper.batchInsertPending(anyList())).thenReturn(1);
 
         service.enqueueOfflineCommands(List.of(command));
@@ -1087,7 +1088,27 @@ class ProtocolCommandOutboxServiceImplTest {
         assertThat(payload)
                 .containsEntry("protocolBackend", "ANDROID")
                 .containsEntry("protocolAccountId", "acc_100")
-                .containsEntry("source", "batch_offline");
+                .containsEntry("source", "batch_offline")
+                .doesNotContainKey("purgeCredentials");
+    }
+
+    /** WB 切片 52：只有导出的下线命令带 purgeCredentials，让协议下线后删除该号的数据。 */
+    @Test
+    void enqueueOfflineCommands_exportPurge_writesPurgeFlagOnlyWhenRequested() throws Exception {
+        TestableProtocolCommandOutboxService service = newService(List.of("cmd-export-purge"), List.of());
+        when(mapper.batchInsertPending(anyList())).thenReturn(1);
+
+        service.enqueueOfflineCommands(List.of(new ProtocolOfflineCommandRequest(
+                101L, "acc_101", "account_export", ProtocolBackend.WEB, true)));
+
+        ProtocolCommandOutbox row = capturedRows().get(0);
+        assertThat(row.getCommandType()).isEqualTo("account.offline.requested");
+        Map<String, Object> payload = objectMapper.readValue(row.getPayloadJson(), new TypeReference<>() {
+        });
+        assertThat(payload)
+                .containsEntry("protocolAccountId", "acc_101")
+                .containsEntry("source", "account_export")
+                .containsEntry("purgeCredentials", true);
     }
 
     @Test

@@ -4,7 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 import com.armada.account.mapper.AccountExportMapper;
 import com.armada.account.mapper.AccountCredentialMapper;
@@ -13,6 +17,8 @@ import com.armada.account.mapper.AccountStateMapper;
 import com.armada.account.model.dto.AccountExportCreateDTO;
 import com.armada.account.model.entity.AccountState;
 import com.armada.boot.config.MyBatisConfig;
+import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.resource.service.IpProxyService;
 import com.armada.shared.exception.BusinessException;
@@ -32,6 +38,7 @@ import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
@@ -63,15 +70,17 @@ class AccountExportServiceH2Test {
     final AuthPrincipal user = new AuthPrincipal(7, 1, "test", "test", "test", "test",
             List.of("TENANT_ADMIN"), List.of("tenant:account:view", "tenant:account:edit"));
 
+    @Autowired ProtocolCommandOutboxService outbox;
+
     @BeforeEach
     void setup() {
-        reset(proxies);
+        reset(proxies, outbox);
         jdbc = new JdbcTemplate(dataSource);
         jdbc.execute("DROP ALL OBJECTS");
         jdbc.execute(com.armada.testsupport.CreatorDeletionH2Schema.DDL);
         jdbc.execute("CREATE TABLE group_pull_marketing_task(id BIGINT, tenant_id BIGINT, builder_group_id BIGINT, resource_status INT)");
         jdbc.execute("CREATE TABLE account_group(id BIGINT PRIMARY KEY, tenant_id BIGINT, marketing_occupancy_task_id BIGINT)");
-        jdbc.execute("CREATE TABLE account(id BIGINT PRIMARY KEY, tenant_id BIGINT, account_group_id BIGINT, owner_user_id BIGINT, dispatched_at BIGINT, deleted_at BIGINT, updated_at BIGINT, ws_phone VARCHAR(32))");
+        jdbc.execute("CREATE TABLE account(id BIGINT PRIMARY KEY, tenant_id BIGINT, account_group_id BIGINT, owner_user_id BIGINT, dispatched_at BIGINT, deleted_at BIGINT, updated_at BIGINT, ws_phone VARCHAR(32), protocol_account_id VARCHAR(64), protocol_id VARCHAR(16))");
         com.armada.testsupport.CreatorDeletionH2Schema.installIdentityIndex(dataSource);
         jdbc.execute("CREATE TABLE account_state(id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id BIGINT, account_id BIGINT, account_state INT, login_state INT, offline_since BIGINT, desired_login_state INT, state_source VARCHAR(40), updated_at BIGINT, last_state_sync_time BIGINT)");
         jdbc.execute("CREATE TABLE account_credential(id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id BIGINT, account_id BIGINT, deleted_at BIGINT, updated_at BIGINT)");
@@ -87,7 +96,7 @@ class AccountExportServiceH2Test {
     }
 
     private void seed(long tenant, long id, int format, String raw) {
-        jdbc.update("INSERT INTO account(id,tenant_id,account_group_id,owner_user_id,dispatched_at,deleted_at,updated_at) VALUES(?,?,?,?,NULL,NULL,0)", id, tenant, tenant, 7);
+        jdbc.update("INSERT INTO account(id,tenant_id,account_group_id,owner_user_id,dispatched_at,deleted_at,updated_at,protocol_account_id,protocol_id) VALUES(?,?,?,?,NULL,NULL,0,?,'WEB')", id, tenant, tenant, 7, "acc_62800000" + id);
         jdbc.update("INSERT INTO account_state(tenant_id,account_id,account_state,login_state,desired_login_state,state_source,updated_at,last_state_sync_time) VALUES(?,?,2,2,2,'STATE_CHANGED',0,0)", tenant, id);
         jdbc.update("INSERT INTO account_credential(tenant_id,account_id) VALUES(?,?)", tenant, id);
         jdbc.update("INSERT INTO account_import_batch VALUES(?,?,?,1)", id, tenant, format);
@@ -112,6 +121,34 @@ class AccountExportServiceH2Test {
         assertThat(count("account WHERE deleted_at IS NOT NULL")).isEqualTo(2);
         assertThat(count("account_credential WHERE deleted_at IS NOT NULL")).isEqualTo(2);
         assertThat(service.download(job.id(), user).getArchive()).isNotEmpty();
+    }
+
+    /** WB 切片 52：协议下线不再删数据，号交出去时由导出完成这一步让 Web 协议删数据（不登出）。 */
+    @Test
+    @SuppressWarnings("unchecked")
+    void completedDeliveryAsksWebProtocolToPurgeDataOnlyOnce() {
+        jdbc.update("UPDATE account SET protocol_id='ANDROID' WHERE id=11");
+        var job = service.create(request(10L, 11L, 12L), user);
+        service.download(job.id(), user);
+        verify(outbox, never()).enqueueOfflineCommands(anyList());
+
+        service.complete(job.id(), job.sha256(), user);
+        service.complete(job.id(), job.sha256(), user);
+
+        ArgumentCaptor<List<ProtocolOfflineCommandRequest>> captor = ArgumentCaptor.forClass(List.class);
+        verify(outbox, times(1)).enqueueOfflineCommands(captor.capture());
+        assertThat(captor.getValue()).containsExactly(
+                new ProtocolOfflineCommandRequest(10L, "acc_6280000010", "account_export", ProtocolBackend.WEB, true),
+                new ProtocolOfflineCommandRequest(12L, "acc_6280000012", "account_export", ProtocolBackend.WEB, true));
+    }
+
+    @Test
+    void cancelledOrRejectedDeliveryDoesNotPurgeProtocolData() {
+        var cancelled = service.create(request(10L), user);
+        service.cancel(cancelled.id(), user);
+        var job = service.create(request(11L), user);
+        assertThatThrownBy(() -> service.complete(job.id(), "wrong", user)).isInstanceOf(BusinessException.class);
+        verify(outbox, never()).enqueueOfflineCommands(anyList());
     }
 
     @Test
@@ -310,9 +347,9 @@ class AccountExportServiceH2Test {
         @Bean AccountCredentialMapper credentials(SqlSessionTemplate t) { return t.getMapper(AccountCredentialMapper.class); }
         @Bean PlatformTransactionManager tx(DataSource ds) { return new DataSourceTransactionManager(ds); }
         @Bean IpProxyService proxies() { return mock(IpProxyService.class); }
-        @Bean AccountExportService service(AccountExportMapper m, IpProxyService p) {
-            return new AccountExportService(m, mock(AccountGroupMapper.class), new AccountExportArchive(),
-                    mock(ProtocolCommandOutboxService.class), p);
+        @Bean ProtocolCommandOutboxService outbox() { return mock(ProtocolCommandOutboxService.class); }
+        @Bean AccountExportService service(AccountExportMapper m, IpProxyService p, ProtocolCommandOutboxService o) {
+            return new AccountExportService(m, mock(AccountGroupMapper.class), new AccountExportArchive(), o, p);
         }
     }
 }

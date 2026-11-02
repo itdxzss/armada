@@ -12,18 +12,21 @@ import com.armada.platform.protocol.model.enums.ProtocolBackend;
  * @param protocolAccountId 协议层账号句柄
  * @param source            命令来源,如 batch_offline
  * @param protocolBackend   协议后端,默认 WEB
+ * @param purgeCredentials  下线后让协议删除该账号的凭据和钥匙但不登出 WhatsApp;只用于账号导出交给他人,
+ *                          普通下线必须为 false(协议下线不再删数据,下次上线接着用,WB 切片 52)
  */
 public record ProtocolOfflineCommandRequest(
         Long accountId,
         String protocolAccountId,
         String source,
-        ProtocolBackend protocolBackend
+        ProtocolBackend protocolBackend,
+        boolean purgeCredentials
 ) {
 
     public ProtocolOfflineCommandRequest(Long accountId,
                                          String protocolAccountId,
                                          String source) {
-        this(accountId, protocolAccountId, source, ProtocolBackend.WEB);
+        this(accountId, protocolAccountId, source, ProtocolBackend.WEB, false);
     }
 
     public ProtocolOfflineCommandRequest {

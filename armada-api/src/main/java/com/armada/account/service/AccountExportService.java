@@ -8,6 +8,8 @@ import com.armada.account.model.entity.AccountExportJob;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.vo.AccountExportJobVO;
+import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.resource.service.IpProxyService;
 import com.armada.shared.exception.BusinessException;
@@ -26,7 +28,7 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 原格式导出交接；只校验离线，不替业务人员执行下线。 */
+/** 原格式导出交接；只校验离线，不替业务人员执行下线；交付完成后让 Web 协议删除该号的数据（不登出）。 */
 @Service
 public class AccountExportService {
     private static final String READY = "READY";
@@ -34,6 +36,8 @@ public class AccountExportService {
     private static final String CANCELLED = "CANCELLED";
     private static final int MAX_ACCOUNTS = 500;
     private static final long FILE_TTL = 24 * 60 * 60 * 1000L;
+    /** 导出完成时删除协议数据的下线命令来源。 */
+    private static final String PURGE_SOURCE = "account_export";
     private final AccountExportMapper mapper;
     private final AccountGroupMapper groups;
     private final AccountExportArchive archive;
@@ -126,6 +130,7 @@ public class AccountExportService {
         if (mapper.removeAccounts(rows, now) != ids.size()) throw invalid("账号状态已变化，未执行移除");
         mapper.removeCredentials(ids, now);
         outbox.cancelPendingAccountOnlineCommands(ids);
+        enqueueProtocolDataPurge(rows);
         for (Long accountId : ids) proxies.releaseByAccount(accountId);
         if (mapper.complete(id, now) != 1) throw invalid("导出状态已变化，请刷新后重试");
         job.setStatus(COMPLETED);
@@ -155,6 +160,25 @@ public class AccountExportService {
         if (!READY.equals(job.getStatus())) throw invalid("已完成导出不能取消");
         mapper.restore(job.getId(), System.currentTimeMillis());
         mapper.cancel(job.getId());
+    }
+
+    /**
+     * 号交给别人之前，让 Web 协议删除它的凭据和钥匙，但不登出 WhatsApp（WB 切片 52）。
+     *
+     * <p>协议下线已不再删数据（下次上线接着用，避免钥匙回退）；不删的话旧钥匙会一直留在协议里，
+     * 同一个号日后再导入时也可能被这份过时数据干扰。与移除账号同一事务写 outbox，回滚则不发。
+     * Android 协议不使用这份数据，不发。</p>
+     *
+     * @param rows 已校验离线、即将移除的导出账号
+     */
+    private void enqueueProtocolDataPurge(List<AccountExportCandidate> rows) {
+        List<ProtocolOfflineCommandRequest> commands = rows.stream()
+                .filter(row -> row.protocolAccountId() != null && !row.protocolAccountId().isBlank())
+                .filter(row -> ProtocolBackend.fromProtocolId(row.protocolId()) == ProtocolBackend.WEB)
+                .map(row -> new ProtocolOfflineCommandRequest(row.id(), row.protocolAccountId(), PURGE_SOURCE,
+                        ProtocolBackend.WEB, true))
+                .toList();
+        if (!commands.isEmpty()) outbox.enqueueOfflineCommands(commands);
     }
 
     private void validateSelection(List<Long> ids, List<AccountExportCandidate> rows,

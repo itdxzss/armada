@@ -5,7 +5,8 @@
   <select id="candidates" resultType="com.armada.account.model.dto.AccountExportCandidate">
     SELECT a.id, a.account_group_id AS groupId, a.dispatched_at AS dispatchedAt,
            s.account_state AS accountState, s.login_state AS loginState,
-           g.marketing_occupancy_task_id AS marketingTaskId, a.owner_user_id AS ownerUserId
+           g.marketing_occupancy_task_id AS marketingTaskId, a.owner_user_id AS ownerUserId,
+           a.protocol_account_id AS protocolAccountId, a.protocol_id AS protocolId
     FROM account a
     JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
     LEFT JOIN account_group g ON g.id = a.account_group_id AND g.tenant_id = a.tenant_id

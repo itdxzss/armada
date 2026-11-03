@@ -87,13 +87,17 @@ public class AccountTypeVerificationServiceImpl implements AccountTypeVerificati
             update.setBusinessVerificationSource(sourceCode);
             update.setBusinessVerificationVerifiedAt(event.detectedAt());
         }
+        // 号质量分析时间只在首次识别时写入:SQL 用 COALESCE 保留已有值,重连或重复事件不会覆盖。
+        update.setWaCreationAt(event.waCreationAt());
+        update.setWaBusinessMemberSinceAt(event.businessMemberSinceAt());
         update.setUpdatedAt(System.currentTimeMillis());
         boolean applied = accountMapper.updateTypeVerification(update, event.credentialVersion()) == 1;
         if (applied) {
-            log.info("账号类型检测已应用 tenantId={} accountId={} oldType={} declaredType={} newType={} status={} verificationLevel={} source={} eventId={}",
+            log.info("账号类型检测已应用 tenantId={} accountId={} oldType={} declaredType={} newType={} status={} verificationLevel={} source={} waCreationAt={} businessMemberSinceAt={} eventId={}",
                     event.tenantId(), event.accountId(), currentType, declaredType,
                     detectedType == null ? currentType : detectedType,
-                    status, event.verificationLevel(), event.source(), event.eventId());
+                    status, event.verificationLevel(), event.source(),
+                    event.waCreationAt(), event.businessMemberSinceAt(), event.eventId());
         }
         return applied;
     }

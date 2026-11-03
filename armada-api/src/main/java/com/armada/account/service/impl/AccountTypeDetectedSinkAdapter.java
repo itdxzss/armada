@@ -40,7 +40,9 @@ public class AccountTypeDetectedSinkAdapter implements ProtocolAccountTypeDetect
                     event.verificationLevel(),
                     event.source(),
                     event.detectedAt(),
-                    event.eventId()));
+                    event.eventId(),
+                    event.waCreationAt(),
+                    event.businessMemberSinceAt()));
         } finally {
             if (previousTenant == null) {
                 TenantContext.clear();

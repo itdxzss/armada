@@ -40,6 +40,12 @@ public class Account {
     /** 商业认证级别最后确认时间(epoch 毫秒)。 */
     private Long businessVerificationVerifiedAt;
 
+    /** WhatsApp 登录 success 节点 creation:该号在当前设备注册/激活时间(epoch 毫秒),导入后首次上线写一次。 */
+    private Long waCreationAt;
+
+    /** 商业资料 member_since:成为 WhatsApp Business 的时间(epoch 毫秒),个人号为空,导入后首次上线写一次。 */
+    private Long waBusinessMemberSinceAt;
+
     /** 机型:1 安卓 2 苹果。 */
     private Integer deviceOs;
 
@@ -177,6 +183,22 @@ public class Account {
 
     public void setBusinessVerificationVerifiedAt(Long businessVerificationVerifiedAt) {
         this.businessVerificationVerifiedAt = businessVerificationVerifiedAt;
+    }
+
+    public Long getWaCreationAt() {
+        return waCreationAt;
+    }
+
+    public void setWaCreationAt(Long waCreationAt) {
+        this.waCreationAt = waCreationAt;
+    }
+
+    public Long getWaBusinessMemberSinceAt() {
+        return waBusinessMemberSinceAt;
+    }
+
+    public void setWaBusinessMemberSinceAt(Long waBusinessMemberSinceAt) {
+        this.waBusinessMemberSinceAt = waBusinessMemberSinceAt;
     }
 
     public Integer getDeviceOs() {

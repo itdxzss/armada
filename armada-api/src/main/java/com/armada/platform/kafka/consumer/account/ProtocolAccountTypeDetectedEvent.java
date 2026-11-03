@@ -15,6 +15,8 @@ public record ProtocolAccountTypeDetectedEvent(
         String verificationLevel,
         String source,
         Long detectedAt,
-        String workerId
+        String workerId,
+        Long waCreationAt,
+        Long businessMemberSinceAt
 ) {
 }

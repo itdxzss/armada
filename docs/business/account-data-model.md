@@ -43,6 +43,8 @@ CREATE TABLE account (
     account_type_verify_status TINYINT NOT NULL DEFAULT 4     COMMENT '账号类型校验状态:0待校验 1已匹配 2已纠正 3无法确认 4存量未校验',
     account_type_verify_source TINYINT DEFAULT NULL           COMMENT '账号类型校验来源:1凭据元数据 2配对结果 3商业资料查询',
     account_type_verified_at BIGINT DEFAULT NULL              COMMENT '账号类型最后校验时间(epoch毫秒)',
+    wa_creation_at      BIGINT                DEFAULT NULL    COMMENT 'Android登录success节点creation:该号在当前设备注册/激活时间(epoch毫秒),导入后首次上线写一次(V220)',
+    wa_business_member_since_at BIGINT        DEFAULT NULL    COMMENT '商业资料member_since_ts:成为WhatsApp Business的时间(epoch毫秒),个人号为空,导入后首次上线写一次(V220)',
     device_os           TINYINT               DEFAULT NULL    COMMENT '机型:1安卓 2苹果',
     number_source       TINYINT               DEFAULT NULL    COMMENT '来源:1买量 2裂变 3自购',
     channel_name        VARCHAR(64)           DEFAULT NULL    COMMENT '推广渠道名',

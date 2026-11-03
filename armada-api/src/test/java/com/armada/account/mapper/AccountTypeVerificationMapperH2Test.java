@@ -58,6 +58,8 @@ class AccountTypeVerificationMapperH2Test {
                   business_verification_level TINYINT,
                   business_verification_source TINYINT,
                   business_verification_verified_at BIGINT,
+                  wa_creation_at BIGINT,
+                  wa_business_member_since_at BIGINT,
                   device_os TINYINT,
                   number_source TINYINT,
                   channel_name VARCHAR(191),
@@ -141,6 +143,41 @@ class AccountTypeVerificationMapperH2Test {
         assertThat(mapper.updateTypeVerification(inconclusive, 1_788_000_000_000L)).isEqualTo(1);
         assertThat(current("account_type")).isEqualTo(2L);
         assertThat(current("account_type_verify_status")).isEqualTo(3L);
+    }
+
+    @Test
+    void registrationTimesAreWrittenOnceAndNeverOverwritten() throws SQLException {
+        Account first = update(2, 2, 3, 1_788_100_000_000L);
+        first.setWaCreationAt(1_793_175_171_000L);
+        first.setWaBusinessMemberSinceAt(1_793_175_176_000L);
+        assertThat(mapper.updateTypeVerification(first, 1_788_000_000_000L)).isEqualTo(1);
+        assertThat(current("wa_creation_at")).isEqualTo(1_793_175_171_000L);
+        assertThat(current("wa_business_member_since_at")).isEqualTo(1_793_175_176_000L);
+
+        Account later = update(2, 2, 3, 1_788_100_000_001L);
+        later.setWaCreationAt(1_799_999_999_000L);
+        later.setWaBusinessMemberSinceAt(1_799_999_999_000L);
+        assertThat(mapper.updateTypeVerification(later, 1_788_000_000_000L)).isEqualTo(1);
+        assertThat(current("wa_creation_at")).isEqualTo(1_793_175_171_000L);
+        assertThat(current("wa_business_member_since_at")).isEqualTo(1_793_175_176_000L);
+    }
+
+    @Test
+    void registrationTimesStayNullWhenDetectionCarriesNone() throws SQLException {
+        assertThat(mapper.updateTypeVerification(update(1, 2, 3, 1_788_100_000_000L), 1_788_000_000_000L))
+                .isEqualTo(1);
+        assertThat(currentNullable("wa_creation_at")).isNull();
+        assertThat(currentNullable("wa_business_member_since_at")).isNull();
+    }
+
+    private Long currentNullable(String column) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("SELECT " + column + " FROM account WHERE id=100")) {
+            result.next();
+            long value = result.getLong(1);
+            return result.wasNull() ? null : value;
+        }
     }
 
     private static Account update(int type, int status, int source, long detectedAt) {

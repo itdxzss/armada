@@ -465,6 +465,13 @@
           a.business_verification_source = #{row.businessVerificationSource},
           a.business_verification_verified_at = #{row.businessVerificationVerifiedAt},
         </if>
+        <!-- 号质量分析时间只写一次:已有值一律保留(COALESCE),重连/重复事件不覆盖。 -->
+        <if test="row.waCreationAt != null">
+          a.wa_creation_at = COALESCE(a.wa_creation_at, #{row.waCreationAt}),
+        </if>
+        <if test="row.waBusinessMemberSinceAt != null">
+          a.wa_business_member_since_at = COALESCE(a.wa_business_member_since_at, #{row.waBusinessMemberSinceAt}),
+        </if>
         a.updated_at = #{row.updatedAt}
     WHERE a.tenant_id = #{row.tenantId}
       AND a.id = #{row.id}

@@ -36,6 +36,8 @@ public class ProtocolAccountEventConsumer {
     private static final int MAX_DEPARTURE_PARTICIPANTS = 5_000;
     private static final int MAX_JOIN_PARTICIPANTS = 5_000;
     private static final String WGP2_ACTOR_DIFFERENT = "WGP2_ACTOR_DIFFERENT";
+    /** WhatsApp 上线(2009-01-01)之前的秒数视为异常值。 */
+    private static final long MIN_WHATSAPP_EPOCH_SECONDS = 1_230_768_000L;
 
     private static final Logger log = LoggerFactory.getLogger(ProtocolAccountEventConsumer.class);
 
@@ -367,7 +369,34 @@ public class ProtocolAccountEventConsumer {
                 text(data, "verificationLevel"),
                 requiredText(data, "source", "协议账号类型事件缺少 source"),
                 detectedAt,
-                text(envelope, "workerId"));
+                text(envelope, "workerId"),
+                optionalEpochSecondsAsMillis(data, "waCreationTs"),
+                optionalEpochSecondsAsMillis(data, "businessMemberSinceTs"));
+    }
+
+    /**
+     * 读取可选的 epoch 秒并转毫秒。号质量时间只是附加事实:缺失、非数字、早于 2009 年或晚于当前一天
+     * 都按 null 处理,不能因为它让账号类型识别整条事件失败。
+     */
+    private static Long optionalEpochSecondsAsMillis(JsonNode node, String fieldName) {
+        JsonNode value = node.path(fieldName);
+        long seconds;
+        if (value.isIntegralNumber()) {
+            seconds = value.longValue();
+        } else if (value.isTextual()) {
+            try {
+                seconds = Long.parseLong(value.asText().trim());
+            } catch (NumberFormatException ex) {
+                return null;
+            }
+        } else {
+            return null;
+        }
+        long maxSeconds = System.currentTimeMillis() / 1000L + 86_400L;
+        if (seconds < MIN_WHATSAPP_EPOCH_SECONDS || seconds > maxSeconds) {
+            return null;
+        }
+        return seconds * 1000L;
     }
 
     private ProtocolAccountGroupsReportedEvent toGroupsReportedEvent(JsonNode envelope) {

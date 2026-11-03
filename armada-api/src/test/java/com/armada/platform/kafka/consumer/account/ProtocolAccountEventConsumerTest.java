@@ -254,7 +254,49 @@ class ProtocolAccountEventConsumerTest {
             assertThat(event.source()).isEqualTo("business_profile_query");
             assertThat(event.detectedAt())
                     .isEqualTo(Instant.parse("2026-08-30T00:59:59Z").toEpochMilli());
+            assertThat(event.waCreationAt()).isNull();
+            assertThat(event.businessMemberSinceAt()).isNull();
         });
+    }
+
+    @Test
+    void onMessage_typeDetectedEnvelope_parsesRegistrationTimesLeniently() {
+        onStateMessage(typeDetectedWithTimes("1793175171", "\"not-a-number\""));
+        onStateMessage(typeDetectedWithTimes("100", "1793175176"));
+
+        ArgumentCaptor<ProtocolAccountTypeDetectedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolAccountTypeDetectedEvent.class);
+        verify(typeDetectedSink, org.mockito.Mockito.times(2)).handleTypeDetected(captor.capture());
+        assertThat(captor.getAllValues().get(0).waCreationAt()).isEqualTo(1_793_175_171_000L);
+        assertThat(captor.getAllValues().get(0).businessMemberSinceAt()).isNull();
+        assertThat(captor.getAllValues().get(1).waCreationAt()).isNull();
+        assertThat(captor.getAllValues().get(1).businessMemberSinceAt()).isEqualTo(1_793_175_176_000L);
+    }
+
+    private static String typeDetectedWithTimes(String creation, String memberSince) {
+        return """
+                {
+                  "eventId": "evt-type-times",
+                  "event": "account.type_detected",
+                  "accountId": "acc_861800000001",
+                  "occurredAt": "2026-11-03T01:00:00Z",
+                  "workerId": "android-1",
+                  "data": {
+                    "tenantId": 7,
+                    "accountId": 100,
+                    "protocolAccountId": "acc_861800000001",
+                    "commandId": "cmd-1",
+                    "protocolBackend": "ANDROID",
+                    "credentialVersion": 1788000000000,
+                    "declaredAccountType": 2,
+                    "detectedAccountType": "BUSINESS_STANDARD",
+                    "source": "business_profile_query",
+                    "detectedAt": "2026-11-03T00:59:59Z",
+                    "waCreationTs": %s,
+                    "businessMemberSinceTs": %s
+                  }
+                }
+                """.formatted(creation, memberSince);
     }
 
     @Test

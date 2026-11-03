@@ -7,6 +7,8 @@
 > 它**取代/订正**记忆里自相矛盾的旧认知(同步HTTP命令 vs Kafka异步、批量上线端点存不存在)。
 >
 > **Armada 现状修订（2026-08-30）:** 本文 §3.3/§3.4 的 `account.type_detected=log-only` 仅描述 2026-06-24 的 wheel↔laqunxitong 基线，不再代表当前 Armada。当前 Armada 从 `protocol.account.state.events.v1` 消费完整 `account.type_detected`，同时校验 tenant/account/protocolAccountId/credentialVersion；可靠结果确认或纠正 `account.account_type`，UNKNOWN 只标记无法确认。Web 与 Android 都只在 ONLINE 后执行一次轻量 business profile 查询。
+>
+> **补充（2026-11-03）:** Android 的 `account.type_detected.data` 新增两个可选字段 `waCreationTs`（登录 success 节点 `creation`，秒）和 `businessMemberSinceTs`（商业资料 `member_since_ts`，秒，仅商业号）。Armada 转为毫秒写入 `account.wa_creation_at` / `account.wa_business_member_since_at`，已有值不覆盖；字段缺失或非法时按空处理，不影响类型识别。Web 不发这两个字段（Web 分身的 `creation` 是绑定时间，不是号的激活时间）。
 
 ---
 

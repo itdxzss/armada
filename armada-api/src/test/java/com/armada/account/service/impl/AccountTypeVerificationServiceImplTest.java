@@ -74,6 +74,44 @@ class AccountTypeVerificationServiceImplTest {
                 .isEqualTo(AccountTypeVerifyStatusCode.INCONCLUSIVE);
     }
 
+    @Test
+    void applyDetected_passesRegistrationTimesForWriteOnce() {
+        Account account = account(2, 2);
+        AccountCredential credential = credential(1_788_000_000_000L);
+        when(accountMapper.selectActiveById(100L)).thenReturn(account);
+        when(credentialMapper.selectByAccountId(100L)).thenReturn(credential);
+        when(accountMapper.updateTypeVerification(any(Account.class), eq(credential.getUpdatedAt())))
+                .thenReturn(1);
+        AccountTypeVerificationServiceImpl service =
+                new AccountTypeVerificationServiceImpl(accountMapper, credentialMapper);
+
+        service.applyDetected(eventWithTimes("BUSINESS_STANDARD", 1_793_175_171_000L, 1_793_175_176_000L));
+
+        ArgumentCaptor<Account> captor = ArgumentCaptor.forClass(Account.class);
+        verify(accountMapper).updateTypeVerification(captor.capture(), eq(credential.getUpdatedAt()));
+        assertThat(captor.getValue().getWaCreationAt()).isEqualTo(1_793_175_171_000L);
+        assertThat(captor.getValue().getWaBusinessMemberSinceAt()).isEqualTo(1_793_175_176_000L);
+    }
+
+    @Test
+    void applyDetected_withoutRegistrationTimesLeavesColumnsUntouched() {
+        Account account = account(1, 1);
+        AccountCredential credential = credential(1_788_000_000_000L);
+        when(accountMapper.selectActiveById(100L)).thenReturn(account);
+        when(credentialMapper.selectByAccountId(100L)).thenReturn(credential);
+        when(accountMapper.updateTypeVerification(any(Account.class), eq(credential.getUpdatedAt())))
+                .thenReturn(1);
+        AccountTypeVerificationServiceImpl service =
+                new AccountTypeVerificationServiceImpl(accountMapper, credentialMapper);
+
+        service.applyDetected(event("PERSONAL"));
+
+        ArgumentCaptor<Account> captor = ArgumentCaptor.forClass(Account.class);
+        verify(accountMapper).updateTypeVerification(captor.capture(), eq(credential.getUpdatedAt()));
+        assertThat(captor.getValue().getWaCreationAt()).isNull();
+        assertThat(captor.getValue().getWaBusinessMemberSinceAt()).isNull();
+    }
+
     private static Account account(int effectiveType, int declaredType) {
         Account account = new Account();
         account.setId(100L);
@@ -104,6 +142,16 @@ class AccountTypeVerificationServiceImplTest {
                 detectedType.startsWith("BUSINESS") ? "HIGH" : "UNKNOWN",
                 "business_profile_query",
                 1_788_048_799_000L,
-                "evt-type-1");
+                "evt-type-1",
+                null,
+                null);
+    }
+
+    private static AccountTypeDetectedEvent eventWithTimes(String detectedType, Long creationAt, Long memberSinceAt) {
+        AccountTypeDetectedEvent base = event(detectedType);
+        return new AccountTypeDetectedEvent(base.tenantId(), base.accountId(), base.protocolAccountId(),
+                base.onlineAttemptId(), base.commandId(), base.protocolBackend(), base.credentialVersion(),
+                base.declaredAccountType(), base.detectedAccountType(), base.verificationLevel(), base.source(),
+                base.detectedAt(), base.eventId(), creationAt, memberSinceAt);
     }
 }

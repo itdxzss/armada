@@ -19,6 +19,7 @@ export RECV_PHONE=<接收号，纯数字>                                   # �
 |---|---|
 | `recv-probe.mjs` | **接收探针**：扫码挂接收号分身，原样记录收到的每一帧（举报令牌、tctoken、privacy_token 通知、正在输入）和解密后的消息、链接预览。Ctrl+C 注销分身并写 `report.md` |
 | `web-send.mjs` | **Web 协议发送**：发送号挂分身，按线上 `worker-consumer.ts` 私聊路径（`generateWAMessage` → `relayMessage`，不发正在输入）发 "hi" 和苹果链接，记录发出的每一帧 |
+| `integrity-probe.mjs` | **账号权重探针**（11-04 下午）：扫码挂分身，只读查一批号码的档位 trust_tier、是否可疑、注册时间，查完自动注销。`node integrity-probe.mjs --targets 名单.tsv --queries IntegrityQuery,StartChatContextIntegrityQuery --gap 4`（名单每行"号码<TAB>标签"；`--dry` 只打印查询）。扫码页 `qr-integrity.html`，结果在 `runs/integrity-<时间>/summary.tsv`。一次别超过 20 个号，否则被限流。结论见 [`../../business/2026-11-04-商业号质量提升-知识库.md`](../../business/2026-11-04-商业号质量提升-知识库.md) |
 | `old-creation-probe/probe.mjs` | 11-03 的注册时间 / 商家资料探针（`--biz`、`--light --biz-file`）。它的扫码页路径有中文解码问题，再用前按 `recv-probe.mjs` 第 18 行的写法改 `here` |
 | `reporting-token-check/` | Baileys 举报令牌缺陷复现：`rt-test.mjs` 单次、`rt-sim.mjs` 跑 2000 次统计、`verify-rt.mjs` 用实测记录验算（要原来那台电脑的 `runs/`，或设 `WA_PROBE_RUNS`） |
 

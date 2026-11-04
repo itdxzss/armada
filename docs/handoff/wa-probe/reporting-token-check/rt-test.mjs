@@ -1,0 +1,13 @@
+const PL=`${(process.env.PROTOCOL_LAYER ?? process.env.HOME + '/daixz工作空间/armada/armada-protocol/protocol-layer')}/node_modules/baileys/lib`
+const { generateWAMessageContent, encodeWAMessage } = await import(`${PL}/index.js`)
+const { getMessageReportingToken } = await import(`${PL}/Utils/reporting-utils.js`)
+const m = await generateWAMessageContent({ text: 'hi' }, {})
+console.log('content keys', Object.keys(m), 'secret?', !!m.messageContextInfo?.messageSecret)
+const enc = encodeWAMessage(m)
+const r = await getMessageReportingToken(enc, m, { id: '3EB0TEST', fromMe: true, remoteJid: `${process.env.RECV_PHONE ?? '0000000000'}@s.whatsapp.net` })
+console.log('reporting node:', r ? JSON.stringify({tag:r.tag, child:r.content[0].tag, len:r.content[0].content.length}) : r)
+const { proto } = await import(`${PL}/index.js`)
+const raw = proto.Message.encode(m).finish()
+console.log('encodeWAMessage 长度', enc.length, '不加填充长度', raw.length, '末尾字节', Buffer.from(enc.subarray(raw.length)).toString('hex'))
+const r2 = await getMessageReportingToken(Buffer.from(raw), m, { id: '3EB0TEST', fromMe: true, remoteJid: `${process.env.RECV_PHONE ?? '0000000000'}@s.whatsapp.net` })
+console.log('不加填充时 reporting node:', r2 ? `${r2.tag}/${r2.content[0].tag} ${r2.content[0].content.length}B` : r2)

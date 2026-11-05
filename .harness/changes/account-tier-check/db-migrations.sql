@@ -1,0 +1,65 @@
+CREATE TABLE IF NOT EXISTS account_tier_check_task (
+ id BIGINT NOT NULL AUTO_INCREMENT COMMENT '批次主键',
+ tenant_id BIGINT NOT NULL COMMENT '租户',
+ created_by BIGINT NOT NULL COMMENT '数据归属',
+ request_id VARCHAR(64) NOT NULL COMMENT '创建幂等键',
+ request_fingerprint VARCHAR(64) NOT NULL COMMENT '标准化创建参数摘要',
+ name VARCHAR(100) NULL COMMENT '批次名',
+ mode TINYINT NOT NULL COMMENT '1自查2探针',
+ probe_account_ids JSON NOT NULL COMMENT '冻结探针ID集合 JSON',
+ source_task_id BIGINT NULL COMMENT '复查来源批次',
+ total_count INT NOT NULL COMMENT '目标账号数',
+ status TINYINT NOT NULL DEFAULT 1 COMMENT '1执行中2停止3完成4部分失败',
+ created_at BIGINT NOT NULL COMMENT '创建毫秒',
+ updated_at BIGINT NOT NULL COMMENT '更新毫秒',
+ finished_at BIGINT NULL COMMENT '结束毫秒',
+ PRIMARY KEY (id),
+ UNIQUE KEY uq_tier_request (tenant_id,created_by,request_id) COMMENT '租户发起人创建幂等',
+ KEY idx_tier_task_page (tenant_id,created_by,id) COMMENT '用户批次分页'
+) COMMENT='账号档位检测批次';
+
+CREATE TABLE IF NOT EXISTS account_tier_check_item (
+ id BIGINT NOT NULL AUTO_INCREMENT COMMENT '快照主键',
+ tenant_id BIGINT NOT NULL COMMENT '租户',
+ task_id BIGINT NOT NULL COMMENT '检测批次',
+ account_id BIGINT NOT NULL COMMENT '目标账号',
+ phone VARCHAR(32) NOT NULL COMMENT '目标号码快照，禁止日志输出',
+ target_identity VARCHAR(64) NOT NULL COMMENT '目标协议/凭据版本摘要，防止串身份',
+ executor_account_id BIGINT NULL COMMENT '实际发起账号',
+ executor_round_count INT NOT NULL DEFAULT 0 COMMENT '发起账号本轮累计查询数，跨批次承接',
+ status TINYINT NOT NULL DEFAULT 1 COMMENT '1待查2查询中3成功4失败5不可查6取消',
+ reason_code VARCHAR(64) NULL COMMENT '固定原因码',
+ server_user_type VARCHAR(64) NULL COMMENT '服务器类型',
+ trust_tier VARCHAR(32) NULL COMMENT '服务器档位；无数据为空',
+ is_suspicious TINYINT NULL COMMENT '服务器可疑标志',
+ is_banned TINYINT NULL COMMENT '服务器封禁标志',
+ is_mv_subscribed TINYINT NULL COMMENT '服务器认证标志',
+ join_date_ms BIGINT NULL COMMENT '服务器注册时间',
+ phone_country_code VARCHAR(32) NULL COMMENT '服务器国家',
+ prev_item_id BIGINT NULL COMMENT '前次成功快照',
+ prev_trust_tier VARCHAR(32) NULL COMMENT '前次成功档位',
+ prev_checked_at BIGINT NULL COMMENT '前次成功时间',
+ tier_change TINYINT NOT NULL DEFAULT 0 COMMENT '0首次1不变2升3降4不明5未查到',
+ checked_at BIGINT NULL COMMENT '检测完成毫秒',
+ last_attempt_at BIGINT NULL COMMENT '最近实际派发毫秒，重试排队不改写',
+ attempt_no INT NOT NULL DEFAULT 0 COMMENT '尝试次数兼作回执隔离令牌',
+ next_execute_at BIGINT NOT NULL DEFAULT 0 COMMENT '到期认领/账号冷却水位，查询中为租约截止',
+ created_at BIGINT NOT NULL COMMENT '创建毫秒',
+ updated_at BIGINT NOT NULL COMMENT '更新毫秒',
+ PRIMARY KEY (id),
+ UNIQUE KEY uq_tier_account (tenant_id,task_id,account_id) COMMENT '批次内账号唯一',
+ KEY idx_tier_history (tenant_id,account_id,checked_at) COMMENT '最近成功快照和时间线',
+ KEY idx_tier_task_item (tenant_id,task_id,status,id) COMMENT '任务明细筛选和调度',
+ KEY idx_tier_executor (tenant_id,executor_account_id,next_execute_at) COMMENT '跨批次在途与冷却',
+ KEY idx_tier_scan (status,next_execute_at,id) COMMENT '后台到期主键扫描'
+) COMMENT='账号档位检测归一化快照';
+-- 账号分组与导入之间；查看 view、写操作由 API edit 权限校验。
+INSERT IGNORE INTO sys_menu
+    (tenant_id, parent_id, menu_name, menu_key, menu_type, route_path, component_path,
+     perm_key, icon, sort_no, status, created_at, created_by, updated_at, updated_by)
+SELECT account_directory.tenant_id, account_directory.id, '档位检测', 'AccountTierCheck', 'M',
+       '/account/tier-check', 'account/tier-check/index', 'tenant:account:view', NULL, 25, 1,
+       account_directory.created_at, NULL, account_directory.updated_at, NULL
+FROM sys_menu account_directory
+WHERE account_directory.menu_key = 'AccountManagement'
+  AND account_directory.menu_type = 'D';

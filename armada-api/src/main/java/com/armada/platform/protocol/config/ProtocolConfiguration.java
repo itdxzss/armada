@@ -318,6 +318,20 @@ public class ProtocolConfiguration {
         return new HttpAccountLifecycleAdapter(protocolHttpExecutor);
     }
 
+    /** 注册 Web 只读档位查询能力；Android 适配留到第二期。 */
+    @Bean
+    public com.armada.platform.protocol.routing.AccountIntegrityBackend webAccountIntegrityBackend(
+            ProtocolHttpExecutorRegistry registry) {
+        return new com.armada.platform.protocol.backend.web.WebAccountIntegrityAdapter(registry.required(ProtocolBackend.WEB));
+    }
+
+    /** 预览和执行共用的档位协议能力路由。 */
+    @Bean
+    public com.armada.platform.protocol.port.AccountIntegrityPort accountIntegrityPort(
+            List<com.armada.platform.protocol.routing.AccountIntegrityBackend> backends) {
+        return new com.armada.platform.protocol.routing.RoutingAccountIntegrityPort(backends);
+    }
+
     /**
      * 注册 Web/Baileys 账号运行态 backend。
      *

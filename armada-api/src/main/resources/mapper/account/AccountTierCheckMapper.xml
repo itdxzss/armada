@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.account.mapper.AccountTierCheckMapper">
+ <sql id="candidateFields">a.id,a.ws_phone,a.protocol_account_id,
+  <include refid="com.armada.account.mapper.AccountMapper.protocolBackendCase"/> AS protocol_backend,
+  a.owner_user_id,s.login_state,a.account_type,c.updated_at AS credential_version
+ </sql>
+ <sql id="candidateFrom">FROM account a
+  LEFT JOIN account_state s ON s.account_id=a.id AND s.tenant_id=a.tenant_id
+  LEFT JOIN account_credential c ON c.account_id=a.id AND c.tenant_id=a.tenant_id AND c.deleted_at IS NULL
+ </sql>
+ <select id="candidates" resultType="com.armada.account.model.dto.AccountTierCheckCandidate">
+  SELECT <include refid="candidateFields"/> <include refid="candidateFrom"/>
+  WHERE a.deleted_at IS NULL AND
+  <choose>
+   <when test="req.accountIds != null and !req.accountIds.isEmpty()">a.id IN <foreach collection="req.accountIds" item="id" open="(" close=")" separator=",">#{id}</foreach></when>
+   <otherwise>a.account_group_id IN <foreach collection="req.accountGroupIds" item="id" open="(" close=")" separator=",">#{id}</foreach></otherwise>
+  </choose>
+  ORDER BY a.id LIMIT #{limit}
+ </select>
+ <select id="account" resultType="com.armada.account.model.dto.AccountTierCheckCandidate">
+  SELECT <include refid="candidateFields"/> <include refid="candidateFrom"/> WHERE a.id=#{id} AND a.deleted_at IS NULL
+ </select>
+ <select id="lockAccount" resultType="long" flushCache="true" useCache="false">SELECT id FROM account WHERE id=#{id} FOR UPDATE</select>
+ <select id="lockCredential" resultType="long" flushCache="true" useCache="false">SELECT updated_at FROM account_credential WHERE account_id=#{id} AND deleted_at IS NULL FOR UPDATE</select>
+ <select id="countGroups" resultType="long">SELECT COUNT(*) FROM account_group WHERE deleted_at IS NULL AND id IN <foreach collection="ids" item="id" open="(" close=")" separator=",">#{id}</foreach></select>
+ <select id="task" resultType="com.armada.account.model.entity.AccountTierCheckTask">SELECT * FROM account_tier_check_task WHERE id=#{id}</select>
+ <select id="lockTask" resultType="com.armada.account.model.entity.AccountTierCheckTask">SELECT * FROM account_tier_check_task WHERE id=#{id} FOR UPDATE</select>
+ <select id="byRequest" resultType="com.armada.account.model.entity.AccountTierCheckTask">SELECT * FROM account_tier_check_task WHERE created_by=#{userId} AND request_id=#{requestId}</select>
+ <insert id="insertTask" useGeneratedKeys="true" keyProperty="id">
+  INSERT INTO account_tier_check_task(tenant_id,created_by,request_id,request_fingerprint,name,mode,probe_account_ids,source_task_id,total_count,status,created_at,updated_at)
+  VALUES(#{tenantId},#{createdBy},#{requestId},#{requestFingerprint},#{name},#{mode},#{probeAccountIds},#{sourceTaskId},#{totalCount},#{status},#{createdAt},#{updatedAt})
+ </insert>
+ <insert id="insertItems">
+  INSERT INTO account_tier_check_item(tenant_id,task_id,account_id,phone,target_identity,status,created_at,updated_at) VALUES
+  <foreach collection="items" item="i" separator=",">(#{i.tenantId},#{i.taskId},#{i.accountId},#{i.phone},#{i.targetIdentity},1,#{i.createdAt},#{i.updatedAt})</foreach>
+ </insert>
+ <sql id="taskFilter">
+  <if test="ownerId != null">AND created_by=#{ownerId}</if>
+  <if test="q.keyword != null and q.keyword != ''">AND name LIKE CONCAT('%',#{q.keyword},'%')</if>
+  <if test="q.mode != null">AND mode=#{q.mode}</if>
+  <if test="q.status != null">AND status=#{q.status}</if>
+ </sql>
+ <select id="countTasks" resultType="long">SELECT COUNT(*) FROM account_tier_check_task WHERE 1=1 <include refid="taskFilter"/></select>
+ <select id="tasks" resultType="com.armada.account.model.entity.AccountTierCheckTask">SELECT * FROM account_tier_check_task WHERE 1=1 <include refid="taskFilter"/> ORDER BY id DESC LIMIT #{q.pageSize} OFFSET #{q.offset}</select>
+ <select id="stats" resultType="com.armada.account.model.vo.AccountTierCheckStatsVO">
+  SELECT COUNT(*) AS total,
+   COALESCE(SUM(CASE WHEN status=3 THEN 1 ELSE 0 END),0) AS success,
+   COALESCE(SUM(CASE WHEN status=4 THEN 1 ELSE 0 END),0) AS failed,
+   COALESCE(SUM(CASE WHEN status=5 THEN 1 ELSE 0 END),0) AS unqueryable,
+   COALESCE(SUM(CASE WHEN status IN (1,2) THEN 1 ELSE 0 END),0) AS pending,
+   COALESCE(SUM(CASE WHEN status IN (3,4,5) AND tier_change=0 THEN 1 ELSE 0 END),0) AS `first`,
+   COALESCE(SUM(CASE WHEN status IN (3,4,5) AND tier_change=1 THEN 1 ELSE 0 END),0) AS `same`,
+   COALESCE(SUM(CASE WHEN status IN (3,4,5) AND tier_change=2 THEN 1 ELSE 0 END),0) AS `up`,
+   COALESCE(SUM(CASE WHEN status IN (3,4,5) AND tier_change=3 THEN 1 ELSE 0 END),0) AS `down`,
+   COALESCE(SUM(CASE WHEN status IN (3,4,5) AND tier_change=4 THEN 1 ELSE 0 END),0) AS `unknown`,
+   COALESCE(SUM(CASE WHEN status IN (3,4,5) AND tier_change=5 THEN 1 ELSE 0 END),0) AS `lost`
+  FROM account_tier_check_item WHERE task_id=#{taskId}
+ </select>
+ <select id="tierCounts" resultType="com.armada.account.model.vo.AccountTierCheckTierCountVO">SELECT trust_tier,COUNT(*) AS count FROM account_tier_check_item WHERE task_id=#{taskId} AND status=3 AND trust_tier IS NOT NULL GROUP BY trust_tier</select>
+ <sql id="itemFilter">task_id=#{taskId}
+  <if test="q.filter == 'changed'">AND status IN (3,4,5) AND tier_change IN (2,3,4)</if>
+  <if test="q.filter == 'lost'">AND status IN (4,5) AND tier_change=5</if>
+ </sql>
+ <select id="countItems" resultType="long">SELECT COUNT(*) FROM account_tier_check_item WHERE <include refid="itemFilter"/></select>
+ <select id="items" resultType="com.armada.account.model.entity.AccountTierCheckItem">SELECT * FROM account_tier_check_item WHERE <include refid="itemFilter"/> ORDER BY id LIMIT #{q.pageSize} OFFSET #{q.offset}</select>
+ <select id="item" resultType="com.armada.account.model.entity.AccountTierCheckItem">SELECT * FROM account_tier_check_item WHERE id=#{id}</select>
+ <select id="previousSuccess" resultType="com.armada.account.model.entity.AccountTierCheckItem">SELECT * FROM account_tier_check_item WHERE account_id=#{accountId} AND status=3 AND id&lt;&gt;#{excludeId} ORDER BY checked_at DESC,id DESC LIMIT 1</select>
+ <select id="history" resultType="com.armada.account.model.vo.AccountTierCheckTimelineEntryVO">
+  SELECT i.id AS item_id,i.task_id,t.name AS task_name,t.mode,i.checked_at,i.trust_tier,i.prev_trust_tier,i.tier_change,i.status,i.reason_code
+  FROM account_tier_check_item i INNER JOIN account_tier_check_task t ON t.id=i.task_id AND t.tenant_id=i.tenant_id
+  WHERE i.account_id=#{accountId} AND i.checked_at IS NOT NULL <if test="ownerId != null">AND t.created_by=#{ownerId}</if>
+  ORDER BY i.checked_at DESC,i.id DESC
+ </select>
+ <select id="accountIds" resultType="long">SELECT account_id FROM account_tier_check_item WHERE task_id=#{taskId} ORDER BY account_id</select>
+ <select id="executorBlocked" resultType="long">SELECT COUNT(*) FROM account_tier_check_item WHERE executor_account_id=#{executorId} AND (status=2 OR next_execute_at&gt;#{now})</select>
+ <select id="latestExecutor" resultType="com.armada.account.model.entity.AccountTierCheckItem">SELECT * FROM account_tier_check_item WHERE executor_account_id=#{executorId} AND attempt_no&gt;0 ORDER BY last_attempt_at DESC,id DESC LIMIT 1</select>
+ <select id="executorLoad" resultType="long">SELECT COUNT(*) FROM account_tier_check_item WHERE executor_account_id=#{executorId} AND status IN (1,2)</select>
+ <update id="claim">UPDATE account_tier_check_item SET status=2,executor_account_id=#{executorAccountId},executor_round_count=#{executorRoundCount},attempt_no=attempt_no+1,last_attempt_at=#{updatedAt},reason_code=NULL,checked_at=NULL,next_execute_at=#{nextExecuteAt},updated_at=#{updatedAt} WHERE id=#{id} AND status=1 AND attempt_no=#{attemptNo}</update>
+ <sql id="resultFields">status=#{status},reason_code=#{reasonCode},server_user_type=#{serverUserType},trust_tier=#{trustTier},is_suspicious=#{isSuspicious},is_banned=#{isBanned},is_mv_subscribed=#{isMvSubscribed},join_date_ms=#{joinDateMs},phone_country_code=#{phoneCountryCode},prev_item_id=#{prevItemId},prev_trust_tier=#{prevTrustTier},prev_checked_at=#{prevCheckedAt},tier_change=#{tierChange},checked_at=#{checkedAt},executor_round_count=#{executorRoundCount},next_execute_at=#{nextExecuteAt},updated_at=#{updatedAt}</sql>
+ <update id="finish">UPDATE account_tier_check_item SET <include refid="resultFields"/> WHERE id=#{id} AND status=2 AND attempt_no=#{attemptNo}</update>
+ <update id="failPending">UPDATE account_tier_check_item SET <include refid="resultFields"/> WHERE id=#{id} AND status=1 AND attempt_no=#{attemptNo}</update>
+ <update id="defer">UPDATE account_tier_check_item SET next_execute_at=#{nextAt},updated_at=#{now} WHERE id=#{id} AND status=1</update>
+ <update id="cancelPending">UPDATE account_tier_check_item SET status=6,reason_code='TASK_STOPPED',updated_at=#{now} WHERE task_id=#{taskId} AND status=1</update>
+ <update id="retryFailed">UPDATE account_tier_check_item SET status=1,reason_code=NULL,checked_at=NULL,tier_change=0,updated_at=#{now} WHERE task_id=#{taskId} AND status=4</update>
+ <update id="release">UPDATE account_tier_check_item SET status=#{status},reason_code='QUERY_RELEASED',updated_at=#{now},next_execute_at=#{now} WHERE id=#{item.id} AND status=2 AND attempt_no=#{item.attemptNo}</update>
+ <update id="setTaskStatus">UPDATE account_tier_check_task SET status=#{status},updated_at=#{now},finished_at=CASE WHEN #{status}=1 THEN NULL ELSE #{now} END WHERE id=#{id}</update>
+ <select id="scan" resultType="com.armada.account.model.dto.AccountTierCheckWork">
+  SELECT i.tenant_id,i.task_id,i.id AS item_id FROM account_tier_check_item i
+  INNER JOIN account_tier_check_task t ON t.id=i.task_id AND t.tenant_id=i.tenant_id
+  WHERE t.status=1 AND i.status=1 AND i.next_execute_at&lt;=#{now}
+  ORDER BY i.updated_at,i.id LIMIT #{limit}
+ </select>
+ <select id="recoverable" resultType="com.armada.account.model.dto.AccountTierCheckWork">
+  SELECT i.tenant_id,i.task_id,i.id AS item_id FROM account_tier_check_item i
+  INNER JOIN account_tier_check_task t ON t.id=i.task_id AND t.tenant_id=i.tenant_id
+  LEFT JOIN account_state s ON s.account_id=i.executor_account_id AND s.tenant_id=i.tenant_id
+  WHERE i.status=2 AND (i.next_execute_at&lt;=#{now} OR (t.mode=2 AND (s.login_state IS NULL OR s.login_state&lt;&gt;1)))
+  ORDER BY i.next_execute_at,i.id LIMIT #{limit}
+ </select>
+</mapper>

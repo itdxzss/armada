@@ -47,6 +47,17 @@ server:
   port: 8080
 
 armada:
+  tier-check:
+    # 默认关闭；只有用户授权并确认目标环境后才能打开真实账号查询。
+    enabled: ${ARMADA_TIER_CHECK_ENABLED:false}
+    interval-ms: ${ARMADA_TIER_CHECK_INTERVAL_MS:4000}
+    round-size: ${ARMADA_TIER_CHECK_ROUND_SIZE:20}
+    # 仅占位值，真实限流边界待授权试跑确认。
+    cooldown-ms: ${ARMADA_TIER_CHECK_COOLDOWN_MS:300000}
+    pool-size: ${ARMADA_TIER_CHECK_POOL_SIZE:2}
+    result-timeout-ms: ${ARMADA_TIER_CHECK_RESULT_TIMEOUT_MS:180000}
+    scan-limit: ${ARMADA_TIER_CHECK_SCAN_LIMIT:64}
+    tick-ms: ${ARMADA_TIER_CHECK_TICK_MS:500}
   # 可导入安卓号分身的 WB 环境（WB 切片 46）：envId|显示名|https://域名|clientId|secret，多个用分号分隔；为空表示不对接。
   wbpro:
     targets: ${WB_TARGETS:}

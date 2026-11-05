@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.account.mapper.SmsActivationMapper">
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO sms_activation
+      (activation_id, phone_number, service_code, country_id, cost, currency, state,
+       cancel_after, expires_at, created_by, created_at, updated_at)
+    VALUES (#{activationId}, #{phoneNumber}, #{serviceCode}, #{countryId}, #{cost}, #{currency}, #{state},
+       #{cancelAfter}, #{expiresAt}, #{createdBy}, #{createdAt}, #{updatedAt})
+  </insert>
+  <select id="find" resultType="com.armada.account.model.entity.SmsActivation">
+    SELECT * FROM sms_activation WHERE id = #{id}
+  </select>
+  <select id="count" resultType="long">SELECT COUNT(*) FROM sms_activation</select>
+  <select id="list" resultType="com.armada.account.model.entity.SmsActivation">
+    SELECT * FROM sms_activation ORDER BY created_at DESC, id DESC LIMIT #{pageSize} OFFSET #{offset}
+  </select>
+  <update id="transition">
+    UPDATE sms_activation SET state=#{row.state},
+      sms_code=COALESCE(#{row.smsCode}, sms_code), received_at=COALESCE(#{row.receivedAt}, received_at),
+      updated_at=#{row.updatedAt}
+    WHERE id=#{row.id} AND state=#{from}
+  </update>
+</mapper>

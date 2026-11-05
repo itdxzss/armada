@@ -1,0 +1,851 @@
+{
+  "date": "2026-10-29",
+  "timezone": "Asia/Shanghai",
+  "branch": "1.0.3-snapshot",
+  "commit": "5d415cafd1c943199178f467639fbc26ddb1450e",
+  "jdk": "Temurin 21.0.12.1+1-LTS",
+  "maven": "3.9.9",
+  "application_class_major_version": 65,
+  "full": {
+    "totals": {
+      "tests": 5550,
+      "failures": 10,
+      "errors": 24,
+      "skipped": 0
+    },
+    "suite_count": 854,
+    "failed": [
+      {
+        "test": "com.armada.group.HistoricalGroupPreviewSchemaSqlTest#previewUpsertPersistsCreatedAtWithoutErasingKnownValueWithNull",
+        "kind": "failure",
+        "exception_type": "java.lang.AssertionError"
+      },
+      {
+        "test": "com.armada.group.mapper.GroupMembershipCountSemanticsMapperH2Test#accountListReadsCurrentBindingWhileMarketingTreeKeepsItsOwnCountSemantics",
+        "kind": "error",
+        "exception_type": "org.springframework.jdbc.BadSqlGrammarException"
+      },
+      {
+        "test": "com.armada.group.mapper.GroupMembershipCountSemanticsMapperH2Test#accountGroupSyncRotationAndWatermarkUseCurrentSyncState",
+        "kind": "error",
+        "exception_type": "org.springframework.jdbc.BadSqlGrammarException"
+      },
+      {
+        "test": "com.armada.group.mapper.GroupParticipantRolePrecedenceSqlTest#lowerTrustSourceCannotDowngradeKnownRole",
+        "kind": "failure",
+        "exception_type": "java.lang.AssertionError"
+      },
+      {
+        "test": "com.armada.group.service.impl.GroupLinkRegistryServiceImplTest#registerSelfBuiltGroupCreatesWaGroupLinkAndOwnerMembership",
+        "kind": "error",
+        "exception_type": "java.lang.IllegalStateException"
+      },
+      {
+        "test": "com.armada.group.service.impl.HistoricalGroupPullWorkerImplTest#usesOneRandomPullerPersistedLinkMarketingFirstBatchesAndAddBasedStatistics",
+        "kind": "failure",
+        "exception_type": "Argument(s) are different! Wanted"
+      },
+      {
+        "test": "com.armada.group.service.impl.HistoricalGroupPullWorkerImplTest#addBatchExceptionFailsThatBatchAndContinuesNextBatchWithoutRetry",
+        "kind": "failure",
+        "exception_type": "Argument(s) are different! Wanted"
+      },
+      {
+        "test": "com.armada.marketing.grouppull.service.GroupPullMarketingMaterialEntryServiceTest#explicitGroupBanFailsExecutionWithoutSchedulingAnotherMaterialAttempt",
+        "kind": "error",
+        "exception_type": "java.lang.IllegalStateException"
+      },
+      {
+        "test": "com.armada.marketing.mapper.GroupCreationMarketingTaskMapperSqlShapeTest#accountRetryMapperStatementsKeepItemRetryScopedToOneItem",
+        "kind": "failure",
+        "exception_type": "java.lang.AssertionError"
+      },
+      {
+        "test": "com.armada.marketing.service.GroupCreationMarketingTaskServiceImplTest#exportSelectedTasksExpandsItemsAndCalculatesCounts",
+        "kind": "error",
+        "exception_type": "java.lang.IllegalStateException"
+      },
+      {
+        "test": "com.armada.marketing.service.GroupCreationMarketingTaskServiceImplTest#createPairsAccountsByIdAscendingWithUploadedFileOrder",
+        "kind": "error",
+        "exception_type": "java.lang.IllegalStateException"
+      },
+      {
+        "test": "com.armada.marketing.service.GroupCreationMarketingTaskServiceImplTest#createAllowsPullingRestrictionButRejectsMessageRestriction",
+        "kind": "error",
+        "exception_type": "java.lang.IllegalStateException"
+      },
+      {
+        "test": "com.armada.marketing.service.GroupCreationMarketingTaskServiceImplTest#createIgnoresExtraAccountsAndReturnsMatchedCount",
+        "kind": "error",
+        "exception_type": "java.lang.IllegalStateException"
+      },
+      {
+        "test": "com.armada.marketing.service.GroupCreationMarketingTaskServiceImplTest#createStoresSendIntervalAndFiltersInvalidAndDuplicatePhones",
+        "kind": "error",
+        "exception_type": "java.lang.IllegalStateException"
+      },
+      {
+        "test": "com.armada.marketing.service.GroupCreationMarketingTaskServiceImplTest#exportRejectsEmptySelection",
+        "kind": "error",
+        "exception_type": "java.lang.IllegalStateException"
+      },
+      {
+        "test": "com.armada.marketing.service.GroupCreationMarketingTaskServiceImplTest#createIgnoresExtraFilesAndReportsUnmatchedFileCount",
+        "kind": "error",
+        "exception_type": "java.lang.IllegalStateException"
+      },
+      {
+        "test": "com.armada.marketing.service.GroupCreationMarketingTaskServiceImplTest#createRejectsWhenNoMatchedItemsExist",
+        "kind": "error",
+        "exception_type": "java.lang.IllegalStateException"
+      },
+      {
+        "test": "com.armada.security.BusinessControllerAuthorizationContractTest#permitsOnlyBusinessMenusThatActuallyUseSharedReadEndpoints",
+        "kind": "failure",
+        "exception_type": "org.opentest4j.AssertionFailedError"
+      },
+      {
+        "test": "com.armada.task.mapper.PullTaskGroupMarketingGroupMapperInMemoryTest#managerPhoneFilterDoesNotMatchOrdinaryMemberRelations",
+        "kind": "error",
+        "exception_type": "org.springframework.jdbc.BadSqlGrammarException"
+      },
+      {
+        "test": "com.armada.task.mapper.PullTaskGroupMarketingGroupMapperInMemoryTest#rollsBackInsertedWaitingWhenExternalCountryAssemblyFails",
+        "kind": "failure",
+        "exception_type": "java.lang.AssertionError"
+      },
+      {
+        "test": "com.armada.task.mapper.PullTaskGroupMarketingGroupMapperInMemoryTest#filtersBySourceAndKeepsOtherTenantsOut",
+        "kind": "error",
+        "exception_type": "org.springframework.jdbc.BadSqlGrammarException"
+      },
+      {
+        "test": "com.armada.task.mapper.PullTaskGroupMarketingGroupMapperInMemoryTest#currentBindingsOverrideStaleLegacyMembershipForCandidateEligibility",
+        "kind": "error",
+        "exception_type": "org.springframework.jdbc.BadSqlGrammarException"
+      },
+      {
+        "test": "com.armada.task.mapper.PullTaskGroupMarketingGroupMapperInMemoryTest#showsMemberOnlyGroupOnlyWhenExplicitlyRequestedAndNeverMakesItEligible",
+        "kind": "error",
+        "exception_type": "org.springframework.jdbc.BadSqlGrammarException"
+      },
+      {
+        "test": "com.armada.task.mapper.PullTaskGroupMarketingGroupMapperInMemoryTest#concurrentServicesAllowExactlyOnePoolToOccupyTheSameGroup",
+        "kind": "error",
+        "exception_type": "java.util.concurrent.ExecutionException"
+      },
+      {
+        "test": "com.armada.task.mapper.PullTaskGroupMarketingGroupMapperInMemoryTest#serviceRoundTripUsesRealTransactionsAndMockedCountryReference",
+        "kind": "error",
+        "exception_type": "org.springframework.jdbc.BadSqlGrammarException"
+      },
+      {
+        "test": "com.armada.task.mapper.PullTaskGroupMarketingGroupMapperInMemoryTest#deduplicatesGroupAndAggregatesEligibleManagersAcrossAccounts",
+        "kind": "error",
+        "exception_type": "org.springframework.jdbc.BadSqlGrammarException"
+      },
+      {
+        "test": "com.armada.task.mapper.PullTaskLifecycleMapperInMemoryTest#lifecycleMapperDoesNotUseExplicitForUpdate",
+        "kind": "failure",
+        "exception_type": "java.lang.AssertionError"
+      },
+      {
+        "test": "com.armada.task.mapper.PullTaskMapperBusinessConditionTest#businessStatusConditionsMustComeFromJavaParameters",
+        "kind": "failure",
+        "exception_type": "org.opentest4j.AssertionFailedError"
+      },
+      {
+        "test": "com.armada.task.mapper.PullTaskNormalLinkSchemaSelfTest#allElevenTablesAreCreated",
+        "kind": "failure",
+        "exception_type": "java.lang.AssertionError"
+      },
+      {
+        "test": "com.armada.task.service.PullTaskStandardCreateServiceTest#newGroupModeAllowsNoManagerGroupAndPersistsNullSnapshot",
+        "kind": "error",
+        "exception_type": "com.armada.shared.exception.BusinessException"
+      },
+      {
+        "test": "com.armada.task.service.PullTaskStandardCreateServiceTest#linkModesStillRejectNoManagerGroupWithoutFreezingDraft",
+        "kind": "error",
+        "exception_type": "org.springframework.dao.DuplicateKeyException"
+      },
+      {
+        "test": "com.armada.task.service.PullTaskStandardSettingWriterTest#newGroupModeAllowsNoManagerButStillValidatesASelectedGroup",
+        "kind": "error",
+        "exception_type": "com.armada.shared.exception.BusinessException"
+      },
+      {
+        "test": "com.armada.testsupport.MysqlModeMapperInMemoryTest#groupFolderMapperExecutesRealXmlAndKeepsTenantBoundary",
+        "kind": "error",
+        "exception_type": "org.springframework.jdbc.BadSqlGrammarException"
+      },
+      {
+        "test": "com.armada.testsupport.MysqlModeMapperInMemoryTest#groupFolderAssignmentLocksAndUpdatesOnlyCurrentTenantGroups",
+        "kind": "error",
+        "exception_type": "org.springframework.jdbc.BadSqlGrammarException"
+      }
+    ],
+    "exit_code": 1,
+    "elapsed": "05:14 min",
+    "database_isolation": "unreachable loopback datasource; .env not loaded",
+    "jvm_attach_errors": 0
+  },
+  "baseline_comparison": {
+    "source": "2026-10-25-java21-upgrade.md",
+    "baseline_count": 35,
+    "matched": 34,
+    "not_reproduced": [
+      {
+        "test": "com.armada.marketing.mapper.MarketingGroupBanMapperH2Test#detailReadsCurrentBanSeparatelyFromSuccessfulAttempt",
+        "baseline_kind": "failure",
+        "current_kind": null,
+        "result": "not_reproduced"
+      }
+    ],
+    "added": [],
+    "changed_kind": [],
+    "rows": [
+      {
+        "test": "com.armada.group.HistoricalGroupPreviewSchemaSqlTest#previewUpsertPersistsCreatedAtWithoutErasingKnownValueWithNull",
+        "baseline_kind": "failure",
+        "current_kind": "failure",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.group.mapper.GroupMembershipCountSemanticsMapperH2Test#accountGroupSyncRotationAndWatermarkUseCurrentSyncState",
+        "baseline_kind": "error",
+        "current_kind": "error",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.group.mapper.GroupMembershipCountSemanticsMapperH2Test#accountListReadsCurrentBindingWhileMarketingTreeKeepsItsOwnCountSemantics",
+        "baseline_kind": "error",
+        "current_kind": "error",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.group.mapper.GroupParticipantRolePrecedenceSqlTest#lowerTrustSourceCannotDowngradeKnownRole",
+        "baseline_kind": "failure",
+        "current_kind": "failure",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.group.service.impl.GroupLinkRegistryServiceImplTest#registerSelfBuiltGroupCreatesWaGroupLinkAndOwnerMembership",
+        "baseline_kind": "error",
+        "current_kind": "error",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.group.service.impl.HistoricalGroupPullWorkerImplTest#addBatchExceptionFailsThatBatchAndContinuesNextBatchWithoutRetry",
+        "baseline_kind": "failure",
+        "current_kind": "failure",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.group.service.impl.HistoricalGroupPullWorkerImplTest#usesOneRandomPullerPersistedLinkMarketingFirstBatchesAndAddBasedStatistics",
+        "baseline_kind": "failure",
+        "current_kind": "failure",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.marketing.grouppull.service.GroupPullMarketingMaterialEntryServiceTest#explicitGroupBanFailsExecutionWithoutSchedulingAnotherMaterialAttempt",
+        "baseline_kind": "error",
+        "current_kind": "error",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.marketing.mapper.GroupCreationMarketingTaskMapperSqlShapeTest#accountRetryMapperStatementsKeepItemRetryScopedToOneItem",
+        "baseline_kind": "failure",
+        "current_kind": "failure",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.marketing.mapper.MarketingGroupBanMapperH2Test#detailReadsCurrentBanSeparatelyFromSuccessfulAttempt",
+        "baseline_kind": "failure",
+        "current_kind": null,
+        "result": "not_reproduced"
+      },
+      {
+        "test": "com.armada.marketing.service.GroupCreationMarketingTaskServiceImplTest#createAllowsPullingRestrictionButRejectsMessageRestriction",
+        "baseline_kind": "error",
+        "current_kind": "error",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.marketing.service.GroupCreationMarketingTaskServiceImplTest#createIgnoresExtraAccountsAndReturnsMatchedCount",
+        "baseline_kind": "error",
+        "current_kind": "error",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.marketing.service.GroupCreationMarketingTaskServiceImplTest#createIgnoresExtraFilesAndReportsUnmatchedFileCount",
+        "baseline_kind": "error",
+        "current_kind": "error",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.marketing.service.GroupCreationMarketingTaskServiceImplTest#createPairsAccountsByIdAscendingWithUploadedFileOrder",
+        "baseline_kind": "error",
+        "current_kind": "error",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.marketing.service.GroupCreationMarketingTaskServiceImplTest#createRejectsWhenNoMatchedItemsExist",
+        "baseline_kind": "error",
+        "current_kind": "error",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.marketing.service.GroupCreationMarketingTaskServiceImplTest#createStoresSendIntervalAndFiltersInvalidAndDuplicatePhones",
+        "baseline_kind": "error",
+        "current_kind": "error",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.marketing.service.GroupCreationMarketingTaskServiceImplTest#exportRejectsEmptySelection",
+        "baseline_kind": "error",
+        "current_kind": "error",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.marketing.service.GroupCreationMarketingTaskServiceImplTest#exportSelectedTasksExpandsItemsAndCalculatesCounts",
+        "baseline_kind": "error",
+        "current_kind": "error",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.security.BusinessControllerAuthorizationContractTest#permitsOnlyBusinessMenusThatActuallyUseSharedReadEndpoints",
+        "baseline_kind": "failure",
+        "current_kind": "failure",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.task.mapper.PullTaskGroupMarketingGroupMapperInMemoryTest#concurrentServicesAllowExactlyOnePoolToOccupyTheSameGroup",
+        "baseline_kind": "error",
+        "current_kind": "error",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.task.mapper.PullTaskGroupMarketingGroupMapperInMemoryTest#currentBindingsOverrideStaleLegacyMembershipForCandidateEligibility",
+        "baseline_kind": "error",
+        "current_kind": "error",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.task.mapper.PullTaskGroupMarketingGroupMapperInMemoryTest#deduplicatesGroupAndAggregatesEligibleManagersAcrossAccounts",
+        "baseline_kind": "error",
+        "current_kind": "error",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.task.mapper.PullTaskGroupMarketingGroupMapperInMemoryTest#filtersBySourceAndKeepsOtherTenantsOut",
+        "baseline_kind": "error",
+        "current_kind": "error",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.task.mapper.PullTaskGroupMarketingGroupMapperInMemoryTest#managerPhoneFilterDoesNotMatchOrdinaryMemberRelations",
+        "baseline_kind": "error",
+        "current_kind": "error",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.task.mapper.PullTaskGroupMarketingGroupMapperInMemoryTest#rollsBackInsertedWaitingWhenExternalCountryAssemblyFails",
+        "baseline_kind": "failure",
+        "current_kind": "failure",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.task.mapper.PullTaskGroupMarketingGroupMapperInMemoryTest#serviceRoundTripUsesRealTransactionsAndMockedCountryReference",
+        "baseline_kind": "error",
+        "current_kind": "error",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.task.mapper.PullTaskGroupMarketingGroupMapperInMemoryTest#showsMemberOnlyGroupOnlyWhenExplicitlyRequestedAndNeverMakesItEligible",
+        "baseline_kind": "error",
+        "current_kind": "error",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.task.mapper.PullTaskLifecycleMapperInMemoryTest#lifecycleMapperDoesNotUseExplicitForUpdate",
+        "baseline_kind": "failure",
+        "current_kind": "failure",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.task.mapper.PullTaskMapperBusinessConditionTest#businessStatusConditionsMustComeFromJavaParameters",
+        "baseline_kind": "failure",
+        "current_kind": "failure",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.task.mapper.PullTaskNormalLinkSchemaSelfTest#allElevenTablesAreCreated",
+        "baseline_kind": "failure",
+        "current_kind": "failure",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.task.service.PullTaskStandardCreateServiceTest#linkModesStillRejectNoManagerGroupWithoutFreezingDraft",
+        "baseline_kind": "error",
+        "current_kind": "error",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.task.service.PullTaskStandardCreateServiceTest#newGroupModeAllowsNoManagerGroupAndPersistsNullSnapshot",
+        "baseline_kind": "error",
+        "current_kind": "error",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.task.service.PullTaskStandardSettingWriterTest#newGroupModeAllowsNoManagerButStillValidatesASelectedGroup",
+        "baseline_kind": "error",
+        "current_kind": "error",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.testsupport.MysqlModeMapperInMemoryTest#groupFolderAssignmentLocksAndUpdatesOnlyCurrentTenantGroups",
+        "baseline_kind": "error",
+        "current_kind": "error",
+        "result": "matched"
+      },
+      {
+        "test": "com.armada.testsupport.MysqlModeMapperInMemoryTest#groupFolderMapperExecutesRealXmlAndKeepsTenantBoundary",
+        "baseline_kind": "error",
+        "current_kind": "error",
+        "result": "matched"
+      }
+    ],
+    "comparison_key": "test class + method + failure/error; historical exception types unavailable"
+  },
+  "focused": {
+    "totals": {
+      "tests": 49,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "suite_count": 3,
+    "suites": [
+      {
+        "name": "com.armada.account.service.AccountMutualContactH2Test",
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "com.armada.account.service.AccountMutualContactPolicyTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "com.armada.platform.kafka.consumer.group.ProtocolGroupEventConsumerTest",
+        "tests": 38,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ],
+    "failed": [],
+    "exit_code": 0
+  },
+  "scripts": {
+    "syntax_exit_code": 0,
+    "deploy_test": {
+      "test_calls": 78,
+      "exit_code": 0
+    },
+    "package_prod": {
+      "exit_code": 1,
+      "per_case": [
+        {
+          "test": "test_help_and_dry_run_contract",
+          "exit_code": 0
+        },
+        {
+          "test": "test_app_package_templates",
+          "exit_code": 0
+        },
+        {
+          "test": "test_protocol_package_templates",
+          "exit_code": 0
+        },
+        {
+          "test": "test_runtime_scripts_are_offline_only",
+          "exit_code": 1
+        }
+      ],
+      "known_failure": "missing prod/scripts/inspect-production-host.sh"
+    }
+  },
+  "dry_runs": {
+    "test1": {
+      "scope": "--be",
+      "exit_code": 0,
+      "remote_commands_executed": false
+    },
+    "perf2": {
+      "scope": "--be",
+      "exit_code": 0,
+      "remote_commands_executed": false
+    }
+  },
+  "deployment": {
+    "status": "deployed_pending_authenticated_api_acceptance",
+    "authorized_environments": [
+      "test1",
+      "perf2"
+    ],
+    "authorization": "User replied 两个环境都部署 after receiving exact commit and backend-only scope",
+    "commit": "5d415cafd1c943199178f467639fbc26ddb1450e",
+    "scope": "--be",
+    "environments": {
+      "test1": {
+        "deploy_exit_code": 0,
+        "scope": "--be",
+        "commit": "5d415cafd1c943199178f467639fbc26ddb1450e",
+        "preflight": {
+          "environment": "test1",
+          "checks": {
+            "env_file_schema_matches_profile": true,
+            "running_schema_matches_profile": true,
+            "compose_project_matches_profile": true,
+            "android_url_matches_profile": true,
+            "android_topics_match_profile": true,
+            "backend_running": true,
+            "nginx_running": true
+          },
+          "backend": {
+            "image_id": "sha256:c06d337662a2b971142192b4edc15bfd9e9ee8dfeb9b2398e0b2ddb02a789350",
+            "status": "running",
+            "restart_count": 0,
+            "started_at": "2026-10-25T07:22:54.751216526Z",
+            "jar_sha256": "9c2e169e505cab4149894c3aaebaf6e394daaedd99981f9d60b47488e3541bb8"
+          },
+          "nginx": {
+            "image_id": "sha256:23f881be1b13d507292c8bf2fc2285f7677f9f2649da78c0f3e35ff842dbc4cb",
+            "started_at": "2026-10-09T02:47:54.601301571Z"
+          },
+          "java_version": "Picked up JAVA_TOOL_OPTIONS: -Xms1024m -Xmx1024m -Darmada.group-link-health-check.enabled=false\nopenjdk version \"21.0.12\" 2026-07-21 LTS\nOpenJDK Runtime Environment Temurin-21.0.12+8 (build 21.0.12+8-LTS)\nOpenJDK 64-Bit Server VM Temurin-21.0.12+8 (build 21.0.12+8-LTS, mixed mode, sharing)"
+        },
+        "local_artifact": {
+          "commit": "5d415cafd1c943199178f467639fbc26ddb1450e",
+          "jar_sha256": "74893e584635cf0aa3746eaf090a7cbe0d7dfb83650e2b67bd19c8c9226beb1f",
+          "application_class_major_version": 65,
+          "build_jdk_spec": "21"
+        },
+        "verification": {
+          "environment": "test1",
+          "observed_at_utc": "2026-10-29T05:00:40.183822+00:00",
+          "checks": {
+            "backend_running": true,
+            "no_restarts": true,
+            "not_oom_killed": true,
+            "java_21": true,
+            "base_image_layers_match_temurin_21_jre": true,
+            "running_jar_matches_local_build": true,
+            "nginx_image_unchanged": true,
+            "nginx_start_unchanged": true,
+            "startup_completed": true,
+            "no_startup_failure_categories": true,
+            "flyway_history_has_no_failures": true,
+            "all_source_migrations_applied": true,
+            "api_returns_structured_auth_responses": true
+          },
+          "backend": {
+            "id": "2327e7f73d14ac0db50de44fa2876edc0f029b66fc0cb6678d79309ffb6e50e9",
+            "image_id": "sha256:8ef97824a8be9b8ed099a2da4efc6c8f2681c4434da6e31741bd7a55c8f6de62",
+            "status": "running",
+            "started_at": "2026-10-29T04:58:03.847656808Z",
+            "restart_count": 0,
+            "jar_sha256": "74893e584635cf0aa3746eaf090a7cbe0d7dfb83650e2b67bd19c8c9226beb1f"
+          },
+          "java_version": "Picked up JAVA_TOOL_OPTIONS: -Xms1024m -Xmx1024m -Darmada.group-link-health-check.enabled=false\nopenjdk version \"21.0.12\" 2026-07-21 LTS\nOpenJDK Runtime Environment Temurin-21.0.12+8 (build 21.0.12+8-LTS)\nOpenJDK 64-Bit Server VM Temurin-21.0.12+8 (build 21.0.12+8-LTS, mixed mode, sharing)",
+          "logs": {
+            "startup_completed": true,
+            "error_categories": {
+              "class_version_errors": 0,
+              "flyway_failure": 0,
+              "configuration_start_failure": 0,
+              "database_connection_error": 0,
+              "kafka_connection_error": 0
+            },
+            "flyway_startup_summary": [
+              "Successfully validated 220 migrations",
+              "Current version of schema `armada`: 218",
+              "Schema `armada` is up to date"
+            ],
+            "error_line_count": 0
+          },
+          "flyway": {
+            "method": "mysql_cli_read_only",
+            "available": true,
+            "exit_code": 0,
+            "row_count": 220,
+            "failed_count": 0,
+            "latest_version": "218",
+            "missing_source_migrations": []
+          },
+          "api_without_credentials": [
+            {
+              "method": "POST",
+              "path": "/api/public/auth/login",
+              "http_status": 200,
+              "business_code": 40103,
+              "json_response": true,
+              "credential_mode": "unauthenticated_validation_only"
+            },
+            {
+              "method": "GET",
+              "path": "/api/accounts?page=1&pageSize=1",
+              "http_status": 401,
+              "business_code": 40104,
+              "json_response": true,
+              "credential_mode": "unauthenticated_validation_only"
+            },
+            {
+              "method": "GET",
+              "path": "/api/accounts/mutual-contact-tasks?page=1&pageSize=1",
+              "http_status": 401,
+              "business_code": 40104,
+              "json_response": true,
+              "credential_mode": "unauthenticated_validation_only"
+            }
+          ],
+          "known_smoke_credential_file_exists": false
+        },
+        "stability_observation": {
+          "environment": "test1",
+          "observed_at_utc": "2026-10-29T05:02:01.340031+00:00",
+          "seconds_since_initial_verification": 81,
+          "checks": {
+            "container_id_unchanged_since_verification": true,
+            "start_time_unchanged_since_verification": true,
+            "running": true,
+            "restart_count_zero": true,
+            "not_oom_killed": true,
+            "no_new_error_logs": true,
+            "nginx_image_unchanged": true,
+            "nginx_start_unchanged": true
+          },
+          "restart_count": 0,
+          "new_error_log_count": 0
+        },
+        "stages": {
+          "backend local build": {
+            "seconds": 11,
+            "status": "SUCCESS"
+          },
+          "Armada SSH connectivity": {
+            "seconds": 1,
+            "status": "SUCCESS"
+          },
+          "Armada remote prepare": {
+            "seconds": 3,
+            "status": "SUCCESS"
+          },
+          "Armada assets sync": {
+            "seconds": 4,
+            "status": "SUCCESS"
+          },
+          "backend jar sync": {
+            "seconds": 11,
+            "status": "SUCCESS"
+          },
+          "Armada image build/start": {
+            "seconds": 19,
+            "status": "SUCCESS"
+          },
+          "Armada health check": {
+            "seconds": 37,
+            "status": "SUCCESS"
+          }
+        },
+        "deployment_log_sha256": "1286c5ffb333d790c5df49c467634f7191e4ad2f40c931d5408ba9b864d37e08"
+      },
+      "perf2": {
+        "deploy_exit_code": 0,
+        "scope": "--be",
+        "commit": "5d415cafd1c943199178f467639fbc26ddb1450e",
+        "preflight": {
+          "environment": "perf2",
+          "checks": {
+            "env_file_schema_matches_profile": true,
+            "running_schema_matches_profile": true,
+            "compose_project_matches_profile": true,
+            "android_url_matches_profile": true,
+            "android_topics_match_profile": true,
+            "backend_running": true,
+            "nginx_running": true
+          },
+          "backend": {
+            "image_id": "sha256:c18bb0febb9d58d57947a65dc9831b02e7d5bb9f696604d8f2add4ad3ef95f36",
+            "status": "running",
+            "restart_count": 0,
+            "started_at": "2026-10-26T10:17:19.779857557Z",
+            "jar_sha256": "6ef2af7a5ba77b0b6095cb43857bb0cdca34a5cb7e1e85788417661ad921f7c9"
+          },
+          "nginx": {
+            "image_id": "sha256:20f93aa3e920252584df4d7860f285cbd0815d187948f5ec024c1d6de59b6d74",
+            "started_at": "2026-10-09T02:56:04.127114903Z"
+          },
+          "java_version": "Picked up JAVA_TOOL_OPTIONS: -Xms1024m -Xmx1024m\nopenjdk version \"21.0.12.1\" 2026-08-18 LTS\nOpenJDK Runtime Environment Temurin-21.0.12.1+1 (build 21.0.12.1+1-LTS)\nOpenJDK 64-Bit Server VM Temurin-21.0.12.1+1 (build 21.0.12.1+1-LTS, mixed mode, sharing)"
+        },
+        "local_artifact": {
+          "commit": "5d415cafd1c943199178f467639fbc26ddb1450e",
+          "jar_sha256": "bd1dec74b130edff00e6a409b5ee567bddff50665c82546c288dc80ec6484f3d",
+          "application_class_major_version": 65,
+          "build_jdk_spec": "21"
+        },
+        "verification": {
+          "environment": "perf2",
+          "observed_at_utc": "2026-10-29T05:03:50.078201+00:00",
+          "checks": {
+            "backend_running": true,
+            "no_restarts": true,
+            "not_oom_killed": true,
+            "java_21": true,
+            "running_jar_matches_local_build": true,
+            "nginx_image_unchanged": true,
+            "nginx_start_unchanged": true,
+            "startup_completed": true,
+            "no_startup_failure_categories": true,
+            "api_returns_structured_auth_responses": true,
+            "base_image_is_temurin_21_jre": true,
+            "flyway_history_has_no_failures": true,
+            "all_source_migrations_applied": true
+          },
+          "backend": {
+            "id": "057a8764851548ecb10c020390c92f857100eac1c6fac86439ffd0ff446bd2d8",
+            "image_id": "sha256:170bed5d68e3d350efd0ecf6a74b7665c472e8bfa3b72e950e2995449dbe24f1",
+            "status": "running",
+            "started_at": "2026-10-29T05:02:34.451425839Z",
+            "restart_count": 0,
+            "jar_sha256": "bd1dec74b130edff00e6a409b5ee567bddff50665c82546c288dc80ec6484f3d"
+          },
+          "java_version": "Picked up JAVA_TOOL_OPTIONS: -Xms1024m -Xmx1024m\nopenjdk version \"21.0.12.1\" 2026-08-18 LTS\nOpenJDK Runtime Environment Temurin-21.0.12.1+1 (build 21.0.12.1+1-LTS)\nOpenJDK 64-Bit Server VM Temurin-21.0.12.1+1 (build 21.0.12.1+1-LTS, mixed mode, sharing)",
+          "logs": {
+            "startup_completed": true,
+            "error_categories": {
+              "class_version_errors": 0,
+              "flyway_failure": 0,
+              "configuration_start_failure": 0,
+              "database_connection_error": 0,
+              "kafka_connection_error": 0
+            },
+            "flyway_startup_summary": [
+              "Successfully validated 221 migrations",
+              "Current version of schema `armada_perf`: 218",
+              "Schema `armada_perf` is up to date"
+            ],
+            "error_line_count": 0
+          },
+          "flyway": {
+            "method": "existing_container_jdbc_read_only",
+            "row_count": 221,
+            "failed_count": 0,
+            "latest_version": "218",
+            "missing_source_migrations": [],
+            "exit_code": 0
+          },
+          "api_without_credentials": [
+            {
+              "method": "POST",
+              "path": "/api/public/auth/login",
+              "http_status": 200,
+              "business_code": 40103,
+              "json_response": true,
+              "credential_mode": "unauthenticated_validation_only"
+            },
+            {
+              "method": "GET",
+              "path": "/api/accounts?page=1&pageSize=1",
+              "http_status": 401,
+              "business_code": 40104,
+              "json_response": true,
+              "credential_mode": "unauthenticated_validation_only"
+            },
+            {
+              "method": "GET",
+              "path": "/api/accounts/mutual-contact-tasks?page=1&pageSize=1",
+              "http_status": 401,
+              "business_code": 40104,
+              "json_response": true,
+              "credential_mode": "unauthenticated_validation_only"
+            }
+          ],
+          "known_smoke_credential_file_exists": false,
+          "base_image_evidence": {
+            "method": "resolved_buildkit_FROM_digest",
+            "image": "docker.io/library/eclipse-temurin:21-jre",
+            "digest": "sha256:f37956012e0cb88400e5b3689aeae2d2d735364c1922ae2225536163b5a99f56",
+            "tagged_base_available_for_layer_comparison": false,
+            "reason": "Standalone base image tag is absent from this image store; the base is verified from the resolved BuildKit FROM digest"
+          }
+        },
+        "stability_observation": {
+          "environment": "perf2",
+          "observed_at_utc": "2026-10-29T05:07:01.763500+00:00",
+          "seconds_since_initial_verification": 192,
+          "checks": {
+            "container_id_unchanged_since_verification": true,
+            "start_time_unchanged_since_verification": true,
+            "running": true,
+            "restart_count_zero": true,
+            "not_oom_killed": true,
+            "no_new_error_logs": true,
+            "nginx_image_unchanged": true,
+            "nginx_start_unchanged": true
+          },
+          "restart_count": 0,
+          "new_error_log_count": 0
+        },
+        "stages": {
+          "backend local build": {
+            "seconds": 9,
+            "status": "SUCCESS"
+          },
+          "Armada SSH connectivity": {
+            "seconds": 4,
+            "status": "SUCCESS"
+          },
+          "Armada remote prepare": {
+            "seconds": 11,
+            "status": "SUCCESS"
+          },
+          "Armada assets sync": {
+            "seconds": 7,
+            "status": "SUCCESS"
+          },
+          "backend jar sync": {
+            "seconds": 16,
+            "status": "SUCCESS"
+          },
+          "Armada image build/start": {
+            "seconds": 27,
+            "status": "SUCCESS"
+          },
+          "Armada health check": {
+            "seconds": 80,
+            "status": "SUCCESS"
+          }
+        },
+        "deployment_log_sha256": "5dcd6b52919b7c3dffd8c7bd5d0c3f9a0a012aa0fe3c87b9e338e3d433ae3220"
+      }
+    },
+    "authenticated_api_acceptance": {
+      "status": "not_executed",
+      "reason": "Awaiting user-provided test credential file path; unauthenticated response checks are recorded separately"
+    }
+  },
+  "mutual_contact_live_smoke": {
+    "status": "not_executed",
+    "reason": "requires separate approval and two user-selected groups"
+  },
+  "raw_logs_local_only": "/private/tmp/armada-java21-20261029-Czr9lE",
+  "full_log_sha256": "018bc4e9b52e2fdda79d5e80376335a4df9a11e291487014708b802412142fdd"
+}

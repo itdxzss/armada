@@ -18,6 +18,7 @@ import com.armada.account.model.entity.SmsActivation;
 import com.armada.account.model.enums.SmsActivationState;
 import com.armada.account.model.vo.AccountRegistrationCatalogVO;
 import com.armada.account.service.AccountRegistrationService;
+import com.armada.account.service.SmsRegistrationService;
 import com.armada.account.service.impl.SmsActivationServiceImpl;
 import com.armada.platform.sms.grizzly.GrizzlySmsClient;
 import com.armada.platform.sms.grizzly.GrizzlySmsProperties;
@@ -43,8 +44,9 @@ class SmsActivationServiceTest {
     private final AccountRegistrationService registrations = mock(AccountRegistrationService.class);
     private final GrizzlySmsClient grizzly = mock(GrizzlySmsClient.class);
     private final GrizzlySmsProperties properties = new GrizzlySmsProperties();
+    private final SmsRegistrationService registrationService = mock(SmsRegistrationService.class);
     private final SmsActivationServiceImpl service = new SmsActivationServiceImpl(mapper,
-            Mappers.getMapper(SmsActivationConverter.class), registrations, grizzly, properties);
+            Mappers.getMapper(SmsActivationConverter.class), registrations, grizzly, properties, registrationService);
     private final List<Integer> transitions = new ArrayList<>();
     private SmsActivation stored;
 
@@ -52,6 +54,9 @@ class SmsActivationServiceTest {
     void setUp() {
         properties.setEnabled(true);
         properties.setPurchasesEnabled(true);
+        // 办理状态附加与占用判断由 SmsRegistrationService 测试负责，这里让它透传、不占用。
+        when(registrationService.disabledReason()).thenReturn("");
+        when(registrationService.attach(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(registrations.catalog()).thenReturn(new AccountRegistrationCatalogVO("wa", "WhatsApp",
                 List.of(new AccountRegistrationCatalogVO.Country("187", "美国")), false, "COBALT_DISABLED"));
         when(mapper.insert(any())).thenAnswer(invocation -> {
@@ -192,6 +197,37 @@ class SmsActivationServiceTest {
         stored.setState(SmsActivationState.RECEIVED.code());
         assertThat(service.complete(1L).state()).isEqualTo("COMPLETED");
         verify(grizzly).setStatus("9001", GrizzlyStatusUpdate.COMPLETE);
+    }
+
+    @Test
+    void occupiedOrderRejectsManualCompleteAndCancelAndOnlyReadsLocallyOnRefresh() {
+        stored = waiting(System.currentTimeMillis() + 60_000);
+        stored.setCancelAfter(0L);
+        when(registrationService.isOccupied(1L)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.cancel(1L)).hasMessageContaining("注册办理中");
+        stored.setState(SmsActivationState.RECEIVED.code());
+        assertThatThrownBy(() -> service.complete(1L)).hasMessageContaining("注册办理中");
+        stored.setState(SmsActivationState.WAITING_CODE.code());
+        assertThat(service.refresh(1L).state()).isEqualTo("WAITING_CODE");
+
+        // 占用期间页面既不能改号商订单，也不能替后台任务去查码回写。
+        verify(grizzly, never()).setStatus(anyString(), any());
+        verify(grizzly, never()).getStatus(anyString());
+        assertThat(transitions).isEmpty();
+    }
+
+    @Test
+    void pollProviderIgnoresOccupationBecauseOnlyTheRegistrationWorkerCallsIt() {
+        stored = waiting(System.currentTimeMillis() + 60_000);
+        when(registrationService.isOccupied(1L)).thenReturn(true);
+        when(grizzly.getStatus("9001")).thenReturn(new GrizzlySmsStatus(GrizzlySmsStatus.State.RECEIVED,
+                Optional.of("004271"), Optional.empty()));
+
+        var result = service.pollProvider(1L);
+
+        assertThat(result.state()).isEqualTo("RECEIVED");
+        assertThat(result.smsCode()).isEqualTo("004271");
     }
 
     @Test

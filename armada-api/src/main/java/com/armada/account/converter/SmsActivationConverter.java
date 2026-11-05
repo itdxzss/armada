@@ -11,8 +11,10 @@ import org.mapstruct.Named;
 /** 手动接码实体到租户响应的转换。 */
 @Mapper(componentModel = "spring")
 public interface SmsActivationConverter {
-    /** 状态转为稳定英文枚举名。 */
+    /** 状态转为稳定英文枚举名；注册办理状态来自另一张表，由 SmsRegistrationService 附加。 */
     @Mapping(target = "state", source = "state", qualifiedByName = "smsActivationState")
+    @Mapping(target = "registrationState", ignore = true)
+    @Mapping(target = "registrationFailure", ignore = true)
     SmsActivationVO vo(SmsActivation row);
     /** 转换已受当前租户约束的记录。 */
     List<SmsActivationVO> vos(List<SmsActivation> rows);

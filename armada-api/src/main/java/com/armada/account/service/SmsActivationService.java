@@ -23,10 +23,19 @@ public interface SmsActivationService {
     SmsActivationVO create(SmsActivationCreateDTO request, long operatorId);
     /** 当前租户记录 SQL 分页，不调用平台。 */
     PageResult<SmsActivationVO> list(SmsActivationQuery query);
-    /** 查询一条记录；仍在等码时向平台查一次短信状态并回写。 */
+    /**
+     * 查询一条记录；仍在等码时向平台查一次短信状态并回写。
+     * 订单被后台注册占用时只读本地：查码并回写由注册定时任务负责，避免两处同时写同一订单。
+     */
     SmsActivationVO refresh(Long id);
-    /** 已收码订单通知平台完成。 */
+    /**
+     * 向平台查一次短信状态并回写，不检查注册占用；仅供注册定时任务使用，页面请走 {@link #refresh}。
+     * @param id 订单 ID
+     * @return 刷新后的订单
+     */
+    SmsActivationVO pollProvider(Long id);
+    /** 已收码订单通知平台完成；订单被后台注册占用时拒绝。 */
     SmsActivationVO complete(Long id);
-    /** 等码订单在允许取消时间后通知平台取消。 */
+    /** 等码订单在允许取消时间后通知平台取消；订单被后台注册占用时拒绝。 */
     SmsActivationVO cancel(Long id);
 }

@@ -26,6 +26,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
@@ -58,6 +59,7 @@ class IpProxyMapperH2Test {
                     bound_account_id BIGINT,
                     bound_at BIGINT,
                     pairing_session_id BIGINT,
+                    registration_activation_id BIGINT,
                     last_sample_check_at BIGINT,
                     detected_country_code VARCHAR(8),
                     outbound_ip VARCHAR(64),
@@ -213,6 +215,41 @@ class IpProxyMapperH2Test {
         assertThat(quarantine(12L, 2_000L)).isOne();
     }
 
+    @Test
+    void registrationReservationUsesOwnColumnAndNeverTouchesPairingOrOtherTenants() throws SQLException {
+        // 配对会话号 700 与接码订单号 700 是两个不同序列里的数字，必须互不影响。
+        executeSql(
+                "INSERT INTO ip_proxy (id, tenant_id, status, updated_at) VALUES (10, 7, 1, 1000)",
+                "INSERT INTO ip_proxy (id, tenant_id, status, pairing_session_id, updated_at) VALUES (11, 7, 4, 700, 1000)",
+                "INSERT INTO ip_proxy (id, tenant_id, status, updated_at) VALUES (12, 8, 1, 1000)");
+        int idle = IpProxyStatus.IDLE.code();
+        int reserved = IpProxyStatus.PAIRING_RESERVED.code();
+
+        assertThat(mapper.reserveForRegistration(10L, 700L, idle, reserved, 2_000L)).isOne();
+        assertThat(queryStatus(10L)).isEqualTo(reserved);
+        // 已被占用的行、别的租户的行、已有配对占用的行都不能再被注册占用。
+        assertThat(mapper.reserveForRegistration(10L, 701L, idle, reserved, 2_000L)).isZero();
+        assertThat(mapper.reserveForRegistration(11L, 700L, idle, reserved, 2_000L)).isZero();
+        assertThat(mapper.reserveForRegistration(12L, 700L, idle, reserved, 2_000L)).isZero();
+
+        // 释放必须同时匹配代理与订单；订单号对不上、代理被配对占用时都释放不了。
+        assertThat(mapper.releaseRegistrationAllocation(10L, 701L, idle, reserved, 3_000L)).isZero();
+        assertThat(mapper.releaseRegistrationAllocation(11L, 700L, idle, reserved, 3_000L)).isZero();
+        assertThat(queryStatus(11L)).isEqualTo(reserved);
+        assertThat(mapper.releaseRegistrationAllocation(10L, 700L, idle, reserved, 3_000L)).isOne();
+        assertThat(queryStatus(10L)).isEqualTo(idle);
+        // 重复释放幂等，不报错也不影响状态。
+        assertThat(mapper.releaseRegistrationAllocation(10L, 700L, idle, reserved, 3_000L)).isZero();
+        // 代理已被另一个订单重新占用时，旧订单的补偿回收不能把它释放掉。
+        assertThat(mapper.reserveForRegistration(10L, 701L, idle, reserved, 4_000L)).isOne();
+        assertThat(mapper.releaseRegistrationAllocation(10L, 700L, idle, reserved, 5_000L)).isZero();
+        assertThat(queryStatus(10L)).isEqualTo(reserved);
+        TenantContext.set(8L);
+        assertThat(mapper.releaseRegistrationAllocation(10L, 701L, idle, reserved, 5_000L)).isZero();
+        TenantContext.set(7L);
+        assertThat(mapper.releaseRegistrationAllocation(10L, 701L, idle, reserved, 5_000L)).isOne();
+    }
+
     private int quarantine(long proxyId, long failedAt) {
         return mapper.markFailedProxyUnavailable(new IpProxyFailureContext(501L, proxyId, failedAt),
                 IpProxyStatus.IN_USE.code(), IpProxyStatus.IDLE.code(), IpProxyCheckLifecycleStatus.SUCCESS.code(), failedUpdate(3_000L));
@@ -268,6 +305,11 @@ class IpProxyMapperH2Test {
         @Bean
         SqlSessionTemplate sqlSessionTemplate(SqlSessionFactory sqlSessionFactory) {
             return new SqlSessionTemplate(sqlSessionFactory);
+        }
+
+        @Bean
+        DataSourceTransactionManager transactionManager(DataSource dataSource) {
+            return new DataSourceTransactionManager(dataSource);
         }
 
         @Bean

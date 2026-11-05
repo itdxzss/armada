@@ -625,6 +625,36 @@
           AND status = #{pairingStatus}
     </update>
 
+    <!-- 注册占用用独立归属列；pairing_session_id 与 bound_account_id 必须保持 NULL，条件更新保证只有空闲行能被占。 -->
+    <update id="reserveForRegistration">
+        UPDATE ip_proxy
+        SET status = #{reservedStatus},
+            registration_activation_id = #{activationId},
+            bound_account_id = NULL,
+            bound_at = #{reservedAt},
+            updated_at = #{reservedAt}
+        WHERE id = #{proxyId}
+          AND deleted_at IS NULL
+          AND status = #{idleStatus}
+          AND pairing_session_id IS NULL
+          AND registration_activation_id IS NULL
+          AND bound_account_id IS NULL
+    </update>
+
+    <update id="releaseRegistrationAllocation">
+        UPDATE ip_proxy
+        SET status = #{idleStatus},
+            registration_activation_id = NULL,
+            bound_account_id = NULL,
+            bound_at = NULL,
+            updated_at = #{updatedAt}
+        WHERE id = #{proxyId}
+          AND registration_activation_id = #{activationId}
+          AND bound_account_id IS NULL
+          AND deleted_at IS NULL
+          AND status = #{reservedStatus}
+    </update>
+
     <update id="releasePairingAllocationBySession">
         UPDATE ip_proxy
         SET status = #{idleStatus},

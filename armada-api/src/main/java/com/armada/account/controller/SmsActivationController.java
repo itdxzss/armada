@@ -5,6 +5,7 @@ import com.armada.account.model.dto.SmsActivationQuery;
 import com.armada.account.model.vo.SmsActivationOptionsVO;
 import com.armada.account.model.vo.SmsActivationVO;
 import com.armada.account.service.SmsActivationService;
+import com.armada.account.service.SmsRegistrationService;
 import com.armada.platform.sms.grizzly.model.GrizzlyPriceTier;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
@@ -28,8 +29,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class SmsActivationController {
     /** 手动接码业务入口。 */
     private final SmsActivationService service;
+    /** 订单的 Go 注册办理入口。 */
+    private final SmsRegistrationService registrationService;
     /** 装配业务服务。 */
-    public SmsActivationController(SmsActivationService service) { this.service = service; }
+    public SmsActivationController(SmsActivationService service, SmsRegistrationService registrationService) {
+        this.service = service;
+        this.registrationService = registrationService;
+    }
 
     /** 页面初始化：国家目录、余额与取号开关。 */
     @GetMapping("/options")
@@ -65,4 +71,11 @@ public class SmsActivationController {
     /** 等码订单通知平台取消。 */
     @PostMapping("/{id}/cancel")
     public ApiResponse<SmsActivationVO> cancel(@PathVariable Long id) { return ApiResponse.ok(service.cancel(id)); }
+
+    /** 对等码订单开始 Go 注册；后台任务接手推进，重复点击返回已有办理记录。 */
+    @PostMapping("/{id}/registration")
+    public ApiResponse<SmsActivationVO> startRegistration(@PathVariable Long id,
+            @AuthenticationPrincipal AuthPrincipal principal) {
+        return ApiResponse.ok(registrationService.start(id, principal.userId()));
+    }
 }

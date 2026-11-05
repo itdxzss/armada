@@ -49,6 +49,7 @@ import java.util.Map;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.Executor;
+import java.util.function.ToIntFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -298,24 +299,26 @@ public class IpProxyServiceImpl implements IpProxyService {
             throw new BusinessException(ErrorCode.TENANT_MISSING, "缺少租户上下文");
         }
         long now = System.currentTimeMillis();
-        IpProxy proxy = reservePairingProxy(
-                tenantId, pairingSessionId, preferredRegion, allowOtherRegionFallback, now);
+        IpProxy proxy = reserveIdleProxy(tenantId, preferredRegion, allowOtherRegionFallback,
+                proxyId -> mapper.reserveForPairing(proxyId, pairingSessionId,
+                        IpProxyStatus.IDLE.code(), IpProxyStatus.PAIRING_RESERVED.code(), now));
         log.info("IP代理推广配对占用 pairingSessionId={} proxyId={} region={}",
                 pairingSessionId, proxy.getId(), proxy.getRegion());
         return new IpProxyAllocation(proxy.getId(), toEndpoint(proxy), proxy.getSource());
     }
 
     /**
-     * 使用现有候选查询和状态 CAS 为推广配对占用一条代理。
+     * 使用现有候选查询和状态 CAS 为临时占用（配对或接码注册）选出并占住一条空闲代理。
      *
      * <p>候选 SELECT 不加锁；若候选被并发请求先占用，则继续尝试下一条，并在下一轮查询时排除
-     * 已尝试代理。真正归属只以 {@code reserveForPairing} 的条件更新结果为准。</p>
+     * 已尝试代理。真正归属只以 {@code reserver} 执行的条件更新结果（影响 1 行）为准。</p>
+     *
+     * @param reserver 对候选代理执行具体占用 UPDATE，返回影响行数；配对与注册各自写自己的归属列
      */
-    private IpProxy reservePairingProxy(Long tenantId,
-                                        Long pairingSessionId,
-                                        String preferredRegion,
-                                        boolean allowOtherRegionFallback,
-                                        long reservedAt) {
+    private IpProxy reserveIdleProxy(Long tenantId,
+                                     String preferredRegion,
+                                     boolean allowOtherRegionFallback,
+                                     ToIntFunction<Long> reserver) {
         Set<Long> attemptedProxyIds = new LinkedHashSet<>();
         while (true) {
             List<IpProxy> candidates = mapper.selectIdleByRegionPriority(new IpProxyCandidateQuery(
@@ -332,10 +335,7 @@ public class IpProxyServiceImpl implements IpProxyService {
                     continue;
                 }
                 attemptedCandidate = true;
-                int reserved = mapper.reserveForPairing(
-                        candidate.getId(), pairingSessionId,
-                        IpProxyStatus.IDLE.code(), IpProxyStatus.PAIRING_RESERVED.code(), reservedAt);
-                if (reserved == 1) {
+                if (reserver.applyAsInt(candidate.getId()) == 1) {
                     return candidate;
                 }
             }
@@ -392,6 +392,53 @@ public class IpProxyServiceImpl implements IpProxyService {
                 System.currentTimeMillis());
         log.info("IP代理推广配对按会话回收 pairingSessionId={} released={}",
                 pairingSessionId, released);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public IpProxyAllocation allocateRegistrationEndpoint(Long smsActivationId, String preferredRegion) {
+        requirePositiveId(smsActivationId, "接码订单 ID 非法");
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING, "缺少租户上下文");
+        }
+        long now = System.currentTimeMillis();
+        // 注册号码的国家与出口国家要一致才接近真实手机，所以不允许回退到其它国家。
+        IpProxy proxy = reserveIdleProxy(tenantId, preferredRegion, false,
+                proxyId -> mapper.reserveForRegistration(proxyId, smsActivationId,
+                        IpProxyStatus.IDLE.code(), IpProxyStatus.PAIRING_RESERVED.code(), now));
+        log.info("IP代理接码注册占用 smsActivationId={} proxyId={} region={}",
+                smsActivationId, proxy.getId(), proxy.getRegion());
+        return new IpProxyAllocation(proxy.getId(), toEndpoint(proxy), proxy.getSource());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void releaseRegistrationAllocation(Long smsActivationId, Long proxyId) {
+        requirePositiveId(smsActivationId, "接码订单 ID 非法");
+        requirePositiveId(proxyId, "代理 ID 非法");
+        int released = mapper.releaseRegistrationAllocation(
+                proxyId, smsActivationId,
+                IpProxyStatus.IDLE.code(), IpProxyStatus.PAIRING_RESERVED.code(),
+                System.currentTimeMillis());
+        log.info("IP代理接码注册释放 smsActivationId={} proxyId={} released={}",
+                smsActivationId, proxyId, released);
+    }
+
+    @Override
+    public ProxyEndpoint findEndpoint(Long proxyId) {
+        requirePositiveId(proxyId, "代理 ID 非法");
+        IpProxy proxy = mapper.selectActiveById(proxyId);
+        if (proxy == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "代理不存在");
+        }
+        return toEndpoint(proxy);
+    }
+
+    private static void requirePositiveId(Long id, String message) {
+        if (id == null || id <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, message);
+        }
     }
 
     /**

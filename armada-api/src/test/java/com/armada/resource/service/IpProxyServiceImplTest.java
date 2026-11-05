@@ -857,6 +857,53 @@ class IpProxyServiceImplTest {
     }
 
     @Test
+    void allocateRegistrationEndpoint_neverFallsBackToOtherCountriesAndWritesRegistrationOwner() {
+        TenantContext.set(1L);
+        try {
+            IpProxy conflicted = idleProxy(10L, "proxy-conflicted.internal");
+            IpProxy available = idleProxy(11L, "proxy-available.internal");
+            // 第 6 个参数 false：号码国家无库存时不允许落到其它国家。
+            when(mapper.selectIdleByRegionPriority(new IpProxyCandidateQuery(
+                    1L, IpProxyStatus.IDLE.code(), "美国", "混合（不限国家）", List.of(), false, 100)))
+                    .thenReturn(List.of(conflicted, available));
+            when(mapper.reserveForRegistration(eq(10L), eq(700L), eq(IpProxyStatus.IDLE.code()),
+                    eq(IpProxyStatus.PAIRING_RESERVED.code()), anyLong())).thenReturn(0);
+            when(mapper.reserveForRegistration(eq(11L), eq(700L), eq(IpProxyStatus.IDLE.code()),
+                    eq(IpProxyStatus.PAIRING_RESERVED.code()), anyLong())).thenReturn(1);
+
+            IpProxyAllocation allocation = service.allocateRegistrationEndpoint(700L, "美国");
+
+            assertThat(allocation.proxyId()).isEqualTo(11L);
+            // 注册占用不得写配对归属列。
+            verify(mapper, never()).reserveForPairing(anyLong(), anyLong(), anyInt(), anyInt(), anyLong());
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void allocateRegistrationEndpoint_failsWhenNoIdleProxy() {
+        TenantContext.set(1L);
+        try {
+            when(mapper.selectIdleByRegionPriority(any(IpProxyCandidateQuery.class))).thenReturn(List.of());
+
+            assertThatThrownBy(() -> service.allocateRegistrationEndpoint(700L, "美国"))
+                    .isInstanceOf(BusinessException.class).hasMessageContaining("暂无空闲代理");
+            verify(mapper, never()).reserveForRegistration(anyLong(), anyLong(), anyInt(), anyInt(), anyLong());
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void releaseRegistrationAllocation_matchesBothOrderAndProxy() {
+        service.releaseRegistrationAllocation(700L, 11L);
+
+        verify(mapper).releaseRegistrationAllocation(eq(11L), eq(700L), eq(IpProxyStatus.IDLE.code()),
+                eq(IpProxyStatus.PAIRING_RESERVED.code()), anyLong());
+    }
+
+    @Test
     void allocateOnlineEndpoints_queriesCandidatesOnceAndClaimsEachProxyConditionally() {
         TenantContext.set(1L);
         try {

@@ -226,6 +226,20 @@ public interface IpProxyMapper {
                                           @Param("pairingStatus") int pairingStatus,
                                           @Param("updatedAt") long updatedAt);
 
+    /** 将已选中的空闲代理标记为接码注册占用；状态沿用占用值，因此继承删除保护与检测不覆盖。 */
+    int reserveForRegistration(@Param("proxyId") Long proxyId,
+                               @Param("activationId") Long activationId,
+                               @Param("idleStatus") int idleStatus,
+                               @Param("reservedStatus") int reservedStatus,
+                               @Param("reservedAt") long reservedAt);
+
+    /** 按代理和接码订单双重条件释放注册占用，不会碰配对占用或账号绑定。 */
+    int releaseRegistrationAllocation(@Param("proxyId") Long proxyId,
+                                      @Param("activationId") Long activationId,
+                                      @Param("idleStatus") int idleStatus,
+                                      @Param("reservedStatus") int reservedStatus,
+                                      @Param("updatedAt") long updatedAt);
+
     /** 统计待删除代理中仍处于推广配对占用的数量。 */
     long countPairingReservationsByIds(@Param("ids") List<Long> ids,
                                        @Param("pairingStatus") int pairingStatus);

@@ -14,7 +14,10 @@ public enum IpProxyStatus {
     IN_USE(2, "使用中"),
     /** 不可用：连续故障达阈值后标记，待人工核查，不自动回池。 */
     UNAVAILABLE(3, "不可用"),
-    /** 配对占用：推广配对期间临时预留，尚未绑定正式账号。 */
+    /**
+     * 临时占用：推广配对或接码注册期间预留，尚未绑定正式账号。
+     * 归属分别记在 pairing_session_id 与 registration_activation_id，二者不得混用。
+     */
     PAIRING_RESERVED(4, "配对占用");
 
     private final int code;

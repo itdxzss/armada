@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.account.mapper.SmsRegistrationMapper">
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO sms_registration
+      (sms_activation_id, state, go_profile_id, proxy_id, failure_code, created_by, created_at, updated_at)
+    VALUES (#{smsActivationId}, #{state}, #{goProfileId}, #{proxyId}, #{failureCode}, #{createdBy}, #{createdAt}, #{updatedAt})
+  </insert>
+  <select id="findByActivation" resultType="com.armada.account.model.entity.SmsRegistration">
+    SELECT * FROM sms_registration WHERE sms_activation_id = #{activationId}
+  </select>
+  <select id="countByActivationAndStates" resultType="int">
+    SELECT COUNT(*) FROM sms_registration WHERE sms_activation_id = #{activationId} AND state IN
+    <foreach collection="states" item="s" open="(" separator="," close=")">#{s}</foreach>
+  </select>
+  <select id="listByActivationIds" resultType="com.armada.account.model.entity.SmsRegistration">
+    SELECT * FROM sms_registration WHERE sms_activation_id IN
+    <foreach collection="activationIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </select>
+  <select id="listByStates" resultType="com.armada.account.model.entity.SmsRegistration">
+    SELECT * FROM sms_registration WHERE state IN
+    <foreach collection="states" item="s" open="(" separator="," close=")">#{s}</foreach>
+    ORDER BY id LIMIT #{limit}
+  </select>
+  <select id="listPendingProxyRelease" resultType="com.armada.account.model.entity.SmsRegistration">
+    SELECT * FROM sms_registration WHERE proxy_id IS NOT NULL AND state IN
+    <foreach collection="states" item="s" open="(" separator="," close=")">#{s}</foreach>
+    ORDER BY id LIMIT #{limit}
+  </select>
+  <update id="clearReleasedProxy">
+    UPDATE sms_registration SET proxy_id=NULL
+    WHERE id=#{id} AND proxy_id=#{proxyId} AND state IN
+    <foreach collection="states" item="s" open="(" separator="," close=")">#{s}</foreach>
+  </update>
+  <update id="transition">
+    UPDATE sms_registration SET state=#{row.state},
+      go_transaction_id=COALESCE(go_transaction_id, #{row.goTransactionId}),
+      go_version=COALESCE(go_version, #{row.goVersion}),
+      failure_code=#{row.failureCode}, updated_at=#{row.updatedAt}
+    WHERE id=#{row.id} AND state=#{from}
+  </update>
+</mapper>

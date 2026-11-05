@@ -11,6 +11,7 @@ import com.armada.account.model.vo.SmsActivationOptionsVO;
 import com.armada.account.model.vo.SmsActivationVO;
 import com.armada.account.service.AccountRegistrationService;
 import com.armada.account.service.SmsActivationService;
+import com.armada.account.service.SmsRegistrationService;
 import com.armada.platform.sms.grizzly.GrizzlySmsClient;
 import com.armada.platform.sms.grizzly.GrizzlySmsProperties;
 import com.armada.platform.sms.grizzly.exception.GrizzlySmsException;
@@ -56,15 +57,19 @@ public class SmsActivationServiceImpl implements SmsActivationService {
     private final GrizzlySmsClient grizzly;
     /** 接码平台开关。 */
     private final GrizzlySmsProperties properties;
+    /** Go 注册办理：订单占用判断与办理状态附加。 */
+    private final SmsRegistrationService registrationService;
 
-    /** 装配数据访问、目录服务与平台客户端。 */
+    /** 装配数据访问、目录服务、平台客户端与注册办理。 */
     public SmsActivationServiceImpl(SmsActivationMapper mapper, SmsActivationConverter converter,
-            AccountRegistrationService registrations, GrizzlySmsClient grizzly, GrizzlySmsProperties properties) {
+            AccountRegistrationService registrations, GrizzlySmsClient grizzly, GrizzlySmsProperties properties,
+            SmsRegistrationService registrationService) {
         this.mapper = mapper;
         this.converter = converter;
         this.registrations = registrations;
         this.grizzly = grizzly;
         this.properties = properties;
+        this.registrationService = registrationService;
     }
 
     @Override
@@ -76,7 +81,9 @@ public class SmsActivationServiceImpl implements SmsActivationService {
             try { balance = grizzly.getBalance(); }
             catch (GrizzlySmsException exception) { LOG.warn("sms activation code=BALANCE_{}", exception.getReason()); }
         }
-        return new SmsActivationOptionsVO(catalog.serviceCode(), catalog.countries(), balance, disabled.isEmpty(), disabled);
+        String registrationDisabled = registrationService.disabledReason();
+        return new SmsActivationOptionsVO(catalog.serviceCode(), catalog.countries(), balance, disabled.isEmpty(),
+                disabled, registrationDisabled.isEmpty(), registrationDisabled);
     }
 
     @Override
@@ -109,32 +116,41 @@ public class SmsActivationServiceImpl implements SmsActivationService {
     @Override
     public PageResult<SmsActivationVO> list(SmsActivationQuery query) {
         long total = mapper.count();
-        var rows = total == 0 ? List.<SmsActivationVO>of() : converter.vos(mapper.list(query));
+        var rows = total == 0 ? List.<SmsActivationVO>of()
+                : registrationService.attach(converter.vos(mapper.list(query)));
         return PageResult.of(rows, query.getPage(), query.getPageSize(), total);
     }
 
     @Override
     public SmsActivationVO refresh(Long id) {
+        // 订单被注册占用时由后台任务查码并回写，页面刷新只读本地，避免两处同时写同一条订单。
+        return registrationService.isOccupied(id) ? view(require(id)) : pollProvider(id);
+    }
+
+    @Override
+    public SmsActivationVO pollProvider(Long id) {
         SmsActivation row = require(id);
         if (row.getState() == SmsActivationState.WAITING_CODE.code()) {
             poll(row);
             row = require(id);
         }
-        return converter.vo(row);
+        return view(row);
     }
 
     @Override
     public SmsActivationVO complete(Long id) {
         SmsActivation row = require(id);
+        requireNotOccupied(id);
         requireState(row, SmsActivationState.RECEIVED, "只有已收到验证码的号码才能完成");
         grizzly.setStatus(row.getActivationId(), GrizzlyStatusUpdate.COMPLETE);
         transition(row, SmsActivationState.COMPLETED);
-        return converter.vo(require(id));
+        return view(require(id));
     }
 
     @Override
     public SmsActivationVO cancel(Long id) {
         SmsActivation row = require(id);
+        requireNotOccupied(id);
         requireState(row, SmsActivationState.WAITING_CODE, "只有等码中的号码才能取消");
         long wait = row.getCancelAfter() - System.currentTimeMillis();
         if (wait > 0) {
@@ -142,7 +158,18 @@ public class SmsActivationServiceImpl implements SmsActivationService {
         }
         grizzly.setStatus(row.getActivationId(), GrizzlyStatusUpdate.CANCEL);
         transition(row, SmsActivationState.CANCELLED);
-        return converter.vo(require(id));
+        return view(require(id));
+    }
+
+    /** 订单被后台注册占用期间（申请中/等码/验证中）不允许手动完成或取消；办理结束后自动恢复。 */
+    private void requireNotOccupied(Long id) {
+        if (registrationService.isOccupied(id)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "注册办理中，暂不能手动完成或取消");
+        }
+    }
+
+    private SmsActivationVO view(SmsActivation row) {
+        return registrationService.attach(List.of(converter.vo(row))).get(0);
     }
 
     /** 等码记录：过期直接本地标记；否则查一次平台，失败保留原状态等下次轮询。 */

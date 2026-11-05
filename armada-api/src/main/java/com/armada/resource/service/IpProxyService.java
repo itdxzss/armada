@@ -1,5 +1,6 @@
 package com.armada.resource.service;
 
+import com.armada.platform.proxy.ProxyEndpoint;
 import com.armada.resource.model.dto.IpProxyImportDTO;
 import com.armada.resource.model.dto.IpProxyQuery;
 import com.armada.resource.model.vo.IpProxyImportResultVO;
@@ -140,6 +141,37 @@ public interface IpProxyService {
      * @param pairingSessionId 配对会话主键
      */
     void releasePairingAllocationBySession(Long pairingSessionId);
+
+    /**
+     * 为接码注册临时占用代理。
+     *
+     * <p>复用空闲代理选择算法，但用独立的订单归属列占用，不写 {@code pairing_session_id}：
+     * 它与配对会话表是不同的自增序列，混用会撞号。号码国家与出口国家要一致才接近真实手机，
+     * 因此指定国家无库存时直接失败，不回退其它国家或混合池以外的国家。</p>
+     *
+     * @param smsActivationId 接码订单主键，必须为正数
+     * @param preferredRegion 按号码区号解析出的 IP 国家
+     * @return 本次注册固定使用的代理
+     * @throws BusinessException 无租户上下文、订单 ID 非法或暂无空闲代理时抛出
+     */
+    IpProxyAllocation allocateRegistrationEndpoint(Long smsActivationId, String preferredRegion);
+
+    /**
+     * 释放接码注册占用的代理；按订单与代理双重条件精确匹配，重复调用幂等。
+     *
+     * @param smsActivationId 接码订单主键
+     * @param proxyId 本次注册占用的代理主键
+     */
+    void releaseRegistrationAllocation(Long smsActivationId, Long proxyId);
+
+    /**
+     * 按代理主键读取端点；连接串含密码，调用方不得落库或写日志，每次需要时重新读取。
+     *
+     * @param proxyId 代理主键
+     * @return 代理端点
+     * @throws BusinessException 代理不存在或不属于当前租户时抛出
+     */
+    ProxyEndpoint findEndpoint(Long proxyId);
 
     /**
      * 为一批账号上线分配空闲代理。

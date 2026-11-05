@@ -12,6 +12,8 @@ public class SmsRegistration {
     private Integer state;
     /** Go 注册配置 ID，开始时固定，幂等重放必须一致。 */
     private Long goProfileId;
+    /** 开始时冻结的账号类型：1 个人，2 商业。 */
+    private Integer accountType;
     /** 本次占用的代理 ID，调用 Go 发码前写入；终态释放成功后清空，非空表示仍需释放。 */
     private Long proxyId;
     /** Go 注册事务 ID，发码成功后写入。 */
@@ -47,6 +49,10 @@ public class SmsRegistration {
     public Long getGoProfileId() { return goProfileId; }
     /** @param goProfileId Go 注册配置 ID */
     public void setGoProfileId(Long goProfileId) { this.goProfileId = goProfileId; }
+    /** @return 冻结的账号类型 */
+    public Integer getAccountType() { return accountType; }
+    /** @param accountType 冻结的账号类型 */
+    public void setAccountType(Integer accountType) { this.accountType = accountType; }
     /** @return 占用的代理 ID */
     public Long getProxyId() { return proxyId; }
     /** @param proxyId 占用的代理 ID */

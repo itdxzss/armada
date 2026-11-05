@@ -6,11 +6,13 @@ import com.armada.account.model.entity.SmsActivation;
 import com.armada.account.model.entity.SmsRegistration;
 import com.armada.account.model.enums.SmsActivationState;
 import com.armada.account.model.enums.SmsRegistrationFailure;
+import com.armada.account.model.enums.AccountTypeCode;
 import com.armada.account.model.enums.SmsRegistrationState;
 import com.armada.account.model.vo.SmsActivationVO;
 import com.armada.account.service.SmsActivationService;
 import com.armada.platform.proxy.ProxyResolver;
 import com.armada.platform.registration.go.GoRegistrationClient;
+import com.armada.platform.registration.go.GoRegistrationRequest;
 import com.armada.platform.registration.go.GoRegistrationProperties;
 import com.armada.platform.registration.go.GoRegistrationResponse;
 import com.armada.platform.registration.go.GoRegistrationSnapshot;
@@ -157,8 +159,8 @@ public class SmsRegistrationWorker {
             return;
         }
         // 号商给的是不带加号的国际数字，Go 要求显式 + 号。
-        GoRegistrationResponse response = go.requestCode(row.getTenantId(), key(row, SEND), "+" + order.getPhoneNumber(),
-                row.getGoProfileId(), proxyUrl);
+        GoRegistrationResponse response = go.requestCode(row.getTenantId(), key(row, SEND), new GoRegistrationRequest("+" + order.getPhoneNumber(),
+                row.getGoProfileId(), proxyUrl, row.getAccountType() == AccountTypeCode.BUSINESS));
         if (response.kind() != GoRegistrationResponse.Kind.DONE) {
             failureOf(response).ifPresent(reason -> fail(row, reason));
             return;

@@ -15,6 +15,7 @@ public interface SmsActivationConverter {
     @Mapping(target = "state", source = "state", qualifiedByName = "smsActivationState")
     @Mapping(target = "registrationState", ignore = true)
     @Mapping(target = "registrationFailure", ignore = true)
+    @Mapping(target = "registrationAccountType", ignore = true)
     SmsActivationVO vo(SmsActivation row);
     /** 转换已受当前租户约束的记录。 */
     List<SmsActivationVO> vos(List<SmsActivation> rows);

@@ -15,10 +15,14 @@ public interface SmsRegistrationService {
      *
      * @param smsActivationId 接码订单 ID
      * @param operatorId 当前登录用户 ID
+     * @param accountType 账号类型，1 个人、2 商业；开始后不得更改
      * @return 附带办理状态的订单
      * @throws com.armada.shared.exception.BusinessException 未启用、订单不可开始、暂无空闲代理时抛出
      */
-    SmsActivationVO start(Long smsActivationId, long operatorId);
+    SmsActivationVO start(Long smsActivationId, long operatorId, int accountType);
+
+    /** @return 当前租户已配置的账号类型，1 个人、2 商业；没有配置时为空 */
+    List<Integer> availableAccountTypes();
 
     /** @return 订单是否正被后台注册占用（申请中、等码、验证中） */
     boolean isOccupied(Long smsActivationId);

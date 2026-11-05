@@ -31,6 +31,7 @@ import com.armada.platform.proxy.ProxyCredentials;
 import com.armada.platform.proxy.ProxyEndpoint;
 import com.armada.platform.proxy.ProxyResolver;
 import com.armada.platform.registration.go.GoRegistrationClient;
+import com.armada.platform.registration.go.GoRegistrationRequest;
 import com.armada.platform.registration.go.GoRegistrationProperties;
 import com.armada.platform.registration.go.GoRegistrationResponse;
 import com.armada.platform.registration.go.GoRegistrationResponse.Kind;
@@ -108,9 +109,11 @@ class SmsRegistrationFlowH2Test {
                 statement.execute(new ClassPathResource("db/migration/" + migration).getContentAsString(StandardCharsets.UTF_8));
             }
         }
+        SmsRegistrationMigration.apply(dataSource);
         var tenant = new GoRegistrationProperties.Tenant();
         tenant.setToken("token");
         tenant.setProfileId(42L);
+        tenant.setBusinessProfileId(43L);
         goProperties.setEnabled(true);
         goProperties.setConcurrency(8);
         goProperties.getTenants().put(TENANT, tenant);
@@ -140,12 +143,56 @@ class SmsRegistrationFlowH2Test {
     }
 
     @Test
+    void businessTypeAndProfileStayFrozenThroughReplayAndVerification() {
+        long id = order("biz-1", "12025550123", 60_000);
+        var started = registrationService.start(id, 5L, 2);
+        assertThat(started.registrationAccountType()).isEqualTo(2);
+        assertThat(registration(id).getAccountType()).isEqualTo(2);
+        assertThat(registration(id).getGoProfileId()).isEqualTo(43L);
+        assertThat(registrationService.start(id, 5L, 2).registrationAccountType()).isEqualTo(2);
+        assertThatThrownBy(() -> registrationService.start(id, 5L, 1)).isInstanceOf(BusinessException.class)
+                .hasMessageContaining("不能更改");
+        // 改配置不能影响已开始事务；首次超时后重放必须仍然使用旧商业配置和类型。
+        goProperties.getTenants().get(TENANT).setBusinessProfileId(99L);
+        when(go.requestCode(eq(TENANT), anyString(), any(GoRegistrationRequest.class)))
+                .thenReturn(GoRegistrationResponse.of(Kind.NO_RESPONSE), done(GoRegistrationState.WAITING_CODE, 3, false));
+        when(grizzly.getStatus("biz-1")).thenReturn(waiting());
+        worker.tick();
+        worker.tick();
+        String key = "sms-go-v1:7:" + registration(id).getId();
+        verify(go, times(2)).requestCode(TENANT, key + ":send",
+                new GoRegistrationRequest("+12025550123", 43L, PROXY_URL, true));
+        when(grizzly.getStatus("biz-1")).thenReturn(received("004271"));
+        when(go.verifyCode(eq(TENANT), anyString(), eq(TX), eq("004271"), eq(3L)))
+                .thenReturn(done(GoRegistrationState.REGISTERED, 5, true));
+        worker.tick();
+        assertThat(registration(id).getState()).isEqualTo(SmsRegistrationState.REGISTERED.code());
+        assertThat(registration(id).getAccountType()).isEqualTo(2);
+        assertThat(registration(id).getGoProfileId()).isEqualTo(43L);
+    }
+
+    @Test
+    void unsupportedOrUnconfiguredTypeCannotAllocateProxy() {
+        long id = order("biz-2", "12025550124", 60_000);
+        assertThat(registrationService.availableAccountTypes()).containsExactly(1, 2);
+        goProperties.getTenants().get(TENANT).setBusinessProfileId(0);
+        assertThat(registrationService.availableAccountTypes()).containsExactly(1);
+        assertThatThrownBy(() -> registrationService.start(id, 5L, 2)).hasMessageContaining("未配置");
+        assertThatThrownBy(() -> registrationService.start(id, 5L, 3)).hasMessageContaining("账号类型");
+        verify(proxies, never()).allocateRegistrationEndpoint(anyLong(), anyString());
+        assertThat(registration(id)).isNull();
+        goProperties.getTenants().get(TENANT).setProfileId(0);
+        goProperties.getTenants().get(TENANT).setBusinessProfileId(43);
+        assertThat(registrationService.availableAccountTypes()).containsExactly(2);
+    }
+
+    @Test
     void singleNumberGoesThroughSendWaitVerifyAndCompletesOrderOnce() {
         long orderId = order("9001", "12025550123", 60_000);
-        when(go.requestCode(eq(TENANT), anyString(), eq("+12025550123"), eq(42L), eq(PROXY_URL))).thenReturn(done(GoRegistrationState.WAITING_CODE, 3, false));
+        when(go.requestCode(eq(TENANT), anyString(), eq(new GoRegistrationRequest("+12025550123", 42L, PROXY_URL, false)))).thenReturn(done(GoRegistrationState.WAITING_CODE, 3, false));
         when(grizzly.getStatus("9001")).thenReturn(waiting());
 
-        var started = registrationService.start(orderId, 5L);
+        var started = registrationService.start(orderId, 5L, 1);
         Long proxyId = registration(orderId).getProxyId();
         assertThat(started.registrationState()).isEqualTo("REQUESTING");
         worker.tick();
@@ -153,7 +200,7 @@ class SmsRegistrationFlowH2Test {
         assertThat(registration(orderId).getGoTransactionId()).isEqualTo(TX);
         assertThat(registration(orderId).getGoVersion()).isEqualTo(3L);
         String key = "sms-go-v1:7:" + registration(orderId).getId();
-        verify(go).requestCode(TENANT, key + ":send", "+12025550123", 42L, PROXY_URL);
+        verify(go).requestCode(TENANT, key + ":send", new GoRegistrationRequest("+12025550123", 42L, PROXY_URL, false));
 
         worker.tick();
         assertThat(registration(orderId).getState()).isEqualTo(SmsRegistrationState.WAITING_CODE.code());
@@ -181,10 +228,10 @@ class SmsRegistrationFlowH2Test {
         for (int i = 0; i < 3; i++) {
             ids[i] = order("900" + i, phones[i], 60_000);
             int index = i;
-            when(go.requestCode(eq(TENANT), anyString(), eq("+" + phones[i]), eq(42L), anyString()))
+            when(go.requestCode(eq(TENANT), anyString(), eq(new GoRegistrationRequest("+" + phones[i], 42L, PROXY_URL, false))))
                     .thenReturn(snapshot(GoRegistrationState.WAITING_CODE, "tx-" + index, 10 + index, false));
             when(grizzly.getStatus("900" + i)).thenReturn(waiting());
-            registrationService.start(ids[i], 5L);
+            registrationService.start(ids[i], 5L, 1);
         }
         worker.tick();
         for (int i = 0; i < 3; i++) {
@@ -212,8 +259,8 @@ class SmsRegistrationFlowH2Test {
     void doubleClickKeepsOneRegistrationAndOneProxy() {
         long orderId = order("9001", "12025550123", 60_000);
 
-        var first = registrationService.start(orderId, 5L);
-        var second = registrationService.start(orderId, 5L);
+        var first = registrationService.start(orderId, 5L, 1);
+        var second = registrationService.start(orderId, 5L, 1);
 
         assertThat(second.registrationState()).isEqualTo(first.registrationState());
         verify(proxies, times(1)).allocateRegistrationEndpoint(anyLong(), anyString());
@@ -223,8 +270,8 @@ class SmsRegistrationFlowH2Test {
     @Test
     void sendAndVerifyAreReplayedWithIdenticalArgumentsUntilGoAnswers() {
         long orderId = order("9001", "12025550123", 60_000);
-        registrationService.start(orderId, 5L);
-        when(go.requestCode(anyLong(), anyString(), anyString(), anyLong(), anyString()))
+        registrationService.start(orderId, 5L, 1);
+        when(go.requestCode(anyLong(), anyString(), any(GoRegistrationRequest.class)))
                 .thenReturn(GoRegistrationResponse.of(Kind.NO_RESPONSE), GoRegistrationResponse.of(Kind.IN_PROGRESS),
                         GoRegistrationResponse.of(Kind.RATE_LIMITED), done(GoRegistrationState.WAITING_CODE, 3, false));
         when(grizzly.getStatus("9001")).thenReturn(received("004271"));
@@ -237,7 +284,7 @@ class SmsRegistrationFlowH2Test {
         assertThat(registration(orderId).getState()).isEqualTo(SmsRegistrationState.WAITING_CODE.code());
         // 四次发码请求逐项相同：同键、同号码、同配置、同代理连接串。
         String key = "sms-go-v1:7:" + registration(orderId).getId() + ":send";
-        verify(go, times(4)).requestCode(TENANT, key, "+12025550123", 42L, PROXY_URL);
+        verify(go, times(4)).requestCode(TENANT, key, new GoRegistrationRequest("+12025550123", 42L, PROXY_URL, false));
 
         worker.tick();
         assertThat(registration(orderId).getState()).isEqualTo(SmsRegistrationState.VERIFYING.code());
@@ -261,8 +308,8 @@ class SmsRegistrationFlowH2Test {
     void goRefusalOnSendStopsReleasesProxyAndGivesTheOrderBackToTheOperator(Kind kind, String errorCode,
             SmsRegistrationFailure expected) {
         long orderId = order("9001", "12025550123", 60_000);
-        registrationService.start(orderId, 5L);
-        when(go.requestCode(anyLong(), anyString(), anyString(), anyLong(), anyString()))
+        registrationService.start(orderId, 5L, 1);
+        when(go.requestCode(anyLong(), anyString(), any(GoRegistrationRequest.class)))
                 .thenReturn(new GoRegistrationResponse(kind, new GoRegistrationSnapshot("", GoRegistrationState.UNRECOGNIZED, 0, false, errorCode == null ? "" : errorCode)));
 
         worker.tick();
@@ -276,7 +323,7 @@ class SmsRegistrationFlowH2Test {
         assertThat(registrationService.isOccupied(orderId)).isFalse();
         assertThat(activationService.cancel(orderId).state()).isEqualTo("CANCELLED");
         worker.tick();
-        verify(go, times(1)).requestCode(anyLong(), anyString(), anyString(), anyLong(), anyString());
+        verify(go, times(1)).requestCode(anyLong(), anyString(), any(GoRegistrationRequest.class));
         verify(proxies, times(1)).releaseRegistrationAllocation(eq(orderId), anyLong());
     }
 
@@ -284,7 +331,7 @@ class SmsRegistrationFlowH2Test {
     @EnumSource(value = SmsRegistrationState.class, names = {"REGISTERED", "ACTION_REQUIRED"})
     void terminalProxyReleaseIsRetriedAfterRestartWithoutRepeatingRegistration(SmsRegistrationState state) {
         long orderId = order("9001", "12025550123", 60_000);
-        registrationService.start(orderId, 5L);
+        registrationService.start(orderId, 5L, 1);
         var row = registration(orderId);
         Long proxyId = row.getProxyId();
         // 模拟终态已提交，但进程在释放代理之前退出；不需要新增恢复状态。
@@ -311,7 +358,7 @@ class SmsRegistrationFlowH2Test {
         worker.tick();
 
         verify(proxies, times(2)).releaseRegistrationAllocation(orderId, proxyId);
-        verify(go, never()).requestCode(anyLong(), anyString(), anyString(), anyLong(), anyString());
+        verify(go, never()).requestCode(anyLong(), anyString(), any(GoRegistrationRequest.class));
         verify(go, never()).verifyCode(anyLong(), anyString(), anyString(), anyString(), anyLong());
         verify(grizzly, never()).setStatus(anyString(), any());
     }
@@ -319,9 +366,9 @@ class SmsRegistrationFlowH2Test {
     @Test
     void failedReleaseAfterSuccessDoesNotDelayOrderCompletionOrRepeatRegistration() {
         long orderId = order("9001", "12025550123", 60_000);
-        registrationService.start(orderId, 5L);
+        registrationService.start(orderId, 5L, 1);
         Long proxyId = registration(orderId).getProxyId();
-        when(go.requestCode(anyLong(), anyString(), anyString(), anyLong(), anyString()))
+        when(go.requestCode(anyLong(), anyString(), any(GoRegistrationRequest.class)))
                 .thenReturn(done(GoRegistrationState.WAITING_CODE, 3, false));
         when(grizzly.getStatus("9001")).thenReturn(received("004271"));
         when(go.verifyCode(anyLong(), anyString(), anyString(), anyString(), anyLong()))
@@ -342,7 +389,7 @@ class SmsRegistrationFlowH2Test {
 
         assertThat(registration(orderId).getProxyId()).isNull();
         verify(proxies, times(2)).releaseRegistrationAllocation(orderId, proxyId);
-        verify(go, times(1)).requestCode(anyLong(), anyString(), anyString(), anyLong(), anyString());
+        verify(go, times(1)).requestCode(anyLong(), anyString(), any(GoRegistrationRequest.class));
         verify(go, times(1)).verifyCode(anyLong(), anyString(), anyString(), anyString(), anyLong());
         verify(grizzly, times(1)).setStatus("9001", GrizzlyStatusUpdate.COMPLETE);
     }
@@ -350,7 +397,7 @@ class SmsRegistrationFlowH2Test {
     @Test
     void releasedProxyWithFailedMarkerWriteIsCleanedUpOnNextTick() throws Exception {
         long orderId = order("9001", "12025550123", 60_000);
-        registrationService.start(orderId, 5L);
+        registrationService.start(orderId, 5L, 1);
         var row = registration(orderId);
         Long proxyId = row.getProxyId();
         row.setState(SmsRegistrationState.ACTION_REQUIRED.code());
@@ -372,7 +419,7 @@ class SmsRegistrationFlowH2Test {
 
         assertThat(registration(orderId).getProxyId()).isNull();
         verify(proxies, times(2)).releaseRegistrationAllocation(orderId, proxyId);
-        verify(go, never()).requestCode(anyLong(), anyString(), anyString(), anyLong(), anyString());
+        verify(go, never()).requestCode(anyLong(), anyString(), any(GoRegistrationRequest.class));
         verify(go, never()).verifyCode(anyLong(), anyString(), anyString(), anyString(), anyLong());
         verify(grizzly, never()).setStatus(anyString(), any());
     }
@@ -380,7 +427,7 @@ class SmsRegistrationFlowH2Test {
     @Test
     void occupiedOrderBlocksManualButtonsUntilRegistrationEnds() {
         long orderId = order("9001", "12025550123", 60_000);
-        registrationService.start(orderId, 5L);
+        registrationService.start(orderId, 5L, 1);
 
         assertThatThrownBy(() -> activationService.cancel(orderId)).hasMessageContaining("注册办理中");
         assertThat(activationService.refresh(orderId).registrationState()).isEqualTo("REQUESTING");
@@ -392,8 +439,8 @@ class SmsRegistrationFlowH2Test {
     void cancelledOrExpiredOrderIsNeverSentToGo() {
         long cancelled = order("9001", "12025550101", 60_000);
         long expired = order("9002", "12025550102", 60_000);
-        registrationService.start(cancelled, 5L);
-        registrationService.start(expired, 5L);
+        registrationService.start(cancelled, 5L, 1);
+        registrationService.start(expired, 5L, 1);
         setOrder(cancelled, SmsActivationState.CANCELLED, null, 60_000);
         setOrder(expired, SmsActivationState.WAITING_CODE, null, -1);
 
@@ -401,15 +448,15 @@ class SmsRegistrationFlowH2Test {
 
         assertThat(registration(cancelled).getFailureCode()).isEqualTo(SmsRegistrationFailure.ORDER_NOT_WAITING.name());
         assertThat(registration(expired).getFailureCode()).isEqualTo(SmsRegistrationFailure.ORDER_EXPIRED.name());
-        verify(go, never()).requestCode(anyLong(), anyString(), anyString(), anyLong(), anyString());
+        verify(go, never()).requestCode(anyLong(), anyString(), any(GoRegistrationRequest.class));
         verify(proxies, times(2)).releaseRegistrationAllocation(anyLong(), anyLong());
     }
 
     @Test
     void orderExpiringWhileWaitingForCodeStopsWithoutCallingGoAgain() {
         long orderId = order("9001", "12025550123", 60_000);
-        registrationService.start(orderId, 5L);
-        when(go.requestCode(anyLong(), anyString(), anyString(), anyLong(), anyString())).thenReturn(done(GoRegistrationState.WAITING_CODE, 3, false));
+        registrationService.start(orderId, 5L, 1);
+        when(go.requestCode(anyLong(), anyString(), any(GoRegistrationRequest.class))).thenReturn(done(GoRegistrationState.WAITING_CODE, 3, false));
         worker.tick();
         setOrder(orderId, SmsActivationState.WAITING_CODE, null, -1);
 
@@ -425,8 +472,8 @@ class SmsRegistrationFlowH2Test {
     @Test
     void registeredStaysRegisteredEvenWhenProviderCompleteFailsAndIsNotRetried() {
         long orderId = order("9001", "12025550123", 60_000);
-        registrationService.start(orderId, 5L);
-        when(go.requestCode(anyLong(), anyString(), anyString(), anyLong(), anyString())).thenReturn(done(GoRegistrationState.WAITING_CODE, 3, false));
+        registrationService.start(orderId, 5L, 1);
+        when(go.requestCode(anyLong(), anyString(), any(GoRegistrationRequest.class))).thenReturn(done(GoRegistrationState.WAITING_CODE, 3, false));
         when(grizzly.getStatus("9001")).thenReturn(received("004271"));
         when(go.verifyCode(anyLong(), anyString(), anyString(), anyString(), anyLong())).thenReturn(done(GoRegistrationState.REGISTERED, 5, true));
         doThrow(new GrizzlySmsException(GrizzlySmsFailure.TRANSPORT_ERROR, true)).when(grizzly).setStatus("9001", GrizzlyStatusUpdate.COMPLETE);
@@ -450,9 +497,9 @@ class SmsRegistrationFlowH2Test {
         long notAvailable = order("9001", "12025550101", 60_000);
         long unknown = order("9002", "12025550102", 60_000);
         for (long id : new long[] {notAvailable, unknown}) {
-            registrationService.start(id, 5L);
+            registrationService.start(id, 5L, 1);
         }
-        when(go.requestCode(anyLong(), anyString(), anyString(), anyLong(), anyString())).thenReturn(done(GoRegistrationState.WAITING_CODE, 3, false));
+        when(go.requestCode(anyLong(), anyString(), any(GoRegistrationRequest.class))).thenReturn(done(GoRegistrationState.WAITING_CODE, 3, false));
         when(grizzly.getStatus(anyString())).thenReturn(received("004271"));
         when(go.verifyCode(anyLong(), anyString(), anyString(), anyString(), anyLong()))
                 .thenReturn(done(GoRegistrationState.REGISTERED, 5, false), GoRegistrationResponse.of(Kind.OUTCOME_UNKNOWN));
@@ -469,8 +516,8 @@ class SmsRegistrationFlowH2Test {
     @Test
     void noAnswerUntilOrderExpiresChecksGoOnceAndAcceptsOnlyAvailableRegistration() {
         long orderId = order("9001", "12025550123", 60_000);
-        registrationService.start(orderId, 5L);
-        when(go.requestCode(anyLong(), anyString(), anyString(), anyLong(), anyString())).thenReturn(done(GoRegistrationState.WAITING_CODE, 3, false));
+        registrationService.start(orderId, 5L, 1);
+        when(go.requestCode(anyLong(), anyString(), any(GoRegistrationRequest.class))).thenReturn(done(GoRegistrationState.WAITING_CODE, 3, false));
         when(grizzly.getStatus("9001")).thenReturn(received("004271"));
         when(go.verifyCode(anyLong(), anyString(), anyString(), anyString(), anyLong())).thenReturn(GoRegistrationResponse.of(Kind.NO_RESPONSE));
         worker.tick();
@@ -488,13 +535,13 @@ class SmsRegistrationFlowH2Test {
     @Test
     void unreadableProxyStopsBeforeAnyGoCall() {
         long orderId = order("9001", "12025550123", 60_000);
-        registrationService.start(orderId, 5L);
+        registrationService.start(orderId, 5L, 1);
         when(proxies.findEndpoint(anyLong())).thenThrow(new BusinessException(ErrorCode.NOT_FOUND, "代理不存在"));
 
         worker.tick();
 
         assertThat(registration(orderId).getFailureCode()).isEqualTo(SmsRegistrationFailure.PROXY_UNAVAILABLE.name());
-        verify(go, never()).requestCode(anyLong(), anyString(), anyString(), anyLong(), anyString());
+        verify(go, never()).requestCode(anyLong(), anyString(), any(GoRegistrationRequest.class));
     }
 
     @Test
@@ -505,13 +552,13 @@ class SmsRegistrationFlowH2Test {
         long received = order("9003", "12025550103", 60_000);
         setOrder(received, SmsActivationState.RECEIVED, "123456", 60_000);
         for (long id : new long[] {withCode, expired, received}) {
-            assertThatThrownBy(() -> registrationService.start(id, 5L)).isInstanceOf(BusinessException.class);
+            assertThatThrownBy(() -> registrationService.start(id, 5L, 1)).isInstanceOf(BusinessException.class);
         }
-        assertThatThrownBy(() -> registrationService.start(999L, 5L)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> registrationService.start(999L, 5L, 1)).isInstanceOf(BusinessException.class);
 
         goProperties.getTenants().clear();
         long fine = order("9004", "12025550104", 60_000);
-        assertThatThrownBy(() -> registrationService.start(fine, 5L)).hasMessageContaining("GO_REGISTRATION_DISABLED");
+        assertThatThrownBy(() -> registrationService.start(fine, 5L, 1)).hasMessageContaining("GO_REGISTRATION_DISABLED");
         assertThat(registrationService.disabledReason()).isEqualTo("GO_REGISTRATION_DISABLED");
 
         verify(proxies, never()).allocateRegistrationEndpoint(anyLong(), anyString());
@@ -524,25 +571,25 @@ class SmsRegistrationFlowH2Test {
         when(proxies.allocateRegistrationEndpoint(anyLong(), anyString()))
                 .thenThrow(new BusinessException(ErrorCode.VALIDATION, "暂无空闲代理"));
 
-        assertThatThrownBy(() -> registrationService.start(orderId, 5L)).hasMessageContaining("暂无空闲代理");
+        assertThatThrownBy(() -> registrationService.start(orderId, 5L, 1)).hasMessageContaining("暂无空闲代理");
 
         assertThat(registrations.findByActivation(orderId)).isNull();
         worker.tick();
-        verify(go, never()).requestCode(anyLong(), anyString(), anyString(), anyLong(), anyString());
+        verify(go, never()).requestCode(anyLong(), anyString(), any(GoRegistrationRequest.class));
     }
 
     @Test
     void workerRestoresEachRecordsTenantAndOtherTenantsCannotSeeTheOccupation() {
         long orderId = order("9001", "12025550123", 60_000);
-        registrationService.start(orderId, 5L);
-        when(go.requestCode(anyLong(), anyString(), anyString(), anyLong(), anyString())).thenReturn(done(GoRegistrationState.WAITING_CODE, 3, false));
+        registrationService.start(orderId, 5L, 1);
+        when(go.requestCode(anyLong(), anyString(), any(GoRegistrationRequest.class))).thenReturn(done(GoRegistrationState.WAITING_CODE, 3, false));
         TenantContext.set(8L);
 
         worker.tick();
 
         // worker 在线程池里按记录租户 7 工作，调用方线程的租户上下文不受影响。
         assertThat(TenantContext.get()).isEqualTo(8L);
-        verify(go).requestCode(eq(TENANT), anyString(), anyString(), anyLong(), anyString());
+        verify(go).requestCode(eq(TENANT), anyString(), any(GoRegistrationRequest.class));
         assertThat(registrationService.isOccupied(orderId)).isFalse();
         TenantContext.set(TENANT);
         assertThat(registration(orderId).getState()).isEqualTo(SmsRegistrationState.WAITING_CODE.code());

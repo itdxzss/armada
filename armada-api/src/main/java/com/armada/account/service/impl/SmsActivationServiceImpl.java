@@ -83,7 +83,7 @@ public class SmsActivationServiceImpl implements SmsActivationService {
         }
         String registrationDisabled = registrationService.disabledReason();
         return new SmsActivationOptionsVO(catalog.serviceCode(), catalog.countries(), balance, disabled.isEmpty(),
-                disabled, registrationDisabled.isEmpty(), registrationDisabled);
+                disabled, registrationDisabled.isEmpty(), registrationDisabled, registrationService.availableAccountTypes());
     }
 
     @Override

@@ -68,7 +68,7 @@ class GoRegistrationClientTest {
     void requestCodeSendsSnakeCaseBodyBearerAndKeyAndParsesWaitingCode() throws Exception {
         responseBody = envelope(0, "WAITING_CODE", 3, false, "");
 
-        var response = client.requestCode(TENANT, "sms-go-v1:7:9:send", "+12025550123", 42L, "socks5://u:p@h:1080");
+        var response = client.requestCode(TENANT, "sms-go-v1:7:9:send", new GoRegistrationRequest("+12025550123", 42L, "socks5://u:p@h:1080", false));
 
         assertThat(response.kind()).isEqualTo(GoRegistrationResponse.Kind.DONE);
         assertThat(response.snapshot().state()).isEqualTo(GoRegistrationState.WAITING_CODE);
@@ -81,7 +81,20 @@ class GoRegistrationClientTest {
         JsonNode body = JSON.readTree(requestBody.get());
         assertThat(body.get("phone").asText()).isEqualTo("+12025550123");
         assertThat(body.get("profile_id").asLong()).isEqualTo(42L);
+        assertThat(body.has("is_business")).isTrue();
+        assertThat(body.path("is_business").asBoolean()).isFalse();
         assertThat(body.get("proxy").asText()).isEqualTo("socks5://u:p@h:1080");
+    }
+
+    @Test
+    void businessRequestSendsDistinctProfileAndTypeWithoutExposingSecrets() throws Exception {
+        responseBody = envelope(0, "WAITING_CODE", 3, false, "");
+        var request = new GoRegistrationRequest("+12025550123", 43L, "socks5://u:p@h:1080", true);
+        assertThat(client.requestCode(TENANT, "business", request).kind()).isEqualTo(GoRegistrationResponse.Kind.DONE);
+        JsonNode body = JSON.readTree(requestBody.get());
+        assertThat(body.get("profile_id").asLong()).isEqualTo(43L);
+        assertThat(body.get("is_business").asBoolean()).isTrue();
+        assertThat(request.toString()).doesNotContain("12025550123", "socks5", "u:p");
     }
 
     @Test
@@ -128,7 +141,7 @@ class GoRegistrationClientTest {
         status = http;
         responseBody = envelope(1, "WAITING_CODE", 3, false, errorCode == null ? "" : errorCode);
 
-        var response = client.requestCode(TENANT, "k", "+12025550123", 42L, "socks5://u:p@h:1080");
+        var response = client.requestCode(TENANT, "k", new GoRegistrationRequest("+12025550123", 42L, "socks5://u:p@h:1080", false));
 
         assertThat(response.kind()).isEqualTo(expected);
         assertThat(response.snapshot().errorCode()).isEqualTo(errorCode == null ? "" : errorCode);
@@ -137,11 +150,11 @@ class GoRegistrationClientTest {
     @Test
     void successWithoutBusinessCodeZeroOrWithGarbageBodyIsNeverTreatedAsSuccess() {
         responseBody = envelope(1, "WAITING_CODE", 3, false, "");
-        assertThat(client.requestCode(TENANT, "k", "+1", 42L, "p").kind())
+        assertThat(client.requestCode(TENANT, "k", new GoRegistrationRequest("+1", 42L, "p", false)).kind())
                 .isEqualTo(GoRegistrationResponse.Kind.OUTCOME_UNKNOWN);
 
         responseBody = "not json";
-        assertThat(client.requestCode(TENANT, "k", "+1", 42L, "p").kind())
+        assertThat(client.requestCode(TENANT, "k", new GoRegistrationRequest("+1", 42L, "p", false)).kind())
                 .isEqualTo(GoRegistrationResponse.Kind.OUTCOME_UNKNOWN);
     }
 
@@ -149,14 +162,14 @@ class GoRegistrationClientTest {
     void connectionFailureReturnsNoResponseSoCallerCanReplayWithTheSameKey() {
         server.stop(0);
 
-        var response = client.requestCode(TENANT, "k", "+12025550123", 42L, "socks5://u:p@h:1080");
+        var response = client.requestCode(TENANT, "k", new GoRegistrationRequest("+12025550123", 42L, "socks5://u:p@h:1080", false));
 
         assertThat(response.kind()).isEqualTo(GoRegistrationResponse.Kind.NO_RESPONSE);
     }
 
     @Test
     void refusesWhenDisabledTenantUnknownOrTransactionIdUnsafe() {
-        assertThatThrownBy(() -> client.requestCode(99L, "k", "+1", 42L, "p")).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> client.requestCode(99L, "k", new GoRegistrationRequest("+1", 42L, "p", false))).isInstanceOf(BusinessException.class);
         assertThatThrownBy(() -> client.status(TENANT, "../admin")).isInstanceOf(BusinessException.class);
         properties.setEnabled(false);
         assertThatThrownBy(() -> client.status(TENANT, "abc")).isInstanceOf(BusinessException.class);

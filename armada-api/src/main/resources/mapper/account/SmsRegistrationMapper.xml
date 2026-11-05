@@ -3,8 +3,8 @@
 <mapper namespace="com.armada.account.mapper.SmsRegistrationMapper">
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO sms_registration
-      (sms_activation_id, state, go_profile_id, proxy_id, failure_code, created_by, created_at, updated_at)
-    VALUES (#{smsActivationId}, #{state}, #{goProfileId}, #{proxyId}, #{failureCode}, #{createdBy}, #{createdAt}, #{updatedAt})
+      (sms_activation_id, state, account_type, go_profile_id, proxy_id, failure_code, created_by, created_at, updated_at)
+    VALUES (#{smsActivationId}, #{state}, #{accountType}, #{goProfileId}, #{proxyId}, #{failureCode}, #{createdBy}, #{createdAt}, #{updatedAt})
   </insert>
   <select id="findByActivation" resultType="com.armada.account.model.entity.SmsRegistration">
     SELECT * FROM sms_registration WHERE sms_activation_id = #{activationId}

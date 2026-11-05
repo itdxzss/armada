@@ -11,8 +11,9 @@ import java.util.List;
  * @param purchaseEnabled 是否允许取号
  * @param disabledReason 不允许取号的固定原因码
  * @param registrationEnabled 当前租户是否可以对订单点“开始注册”
+ * @param registrationAccountTypes 当前租户已配置的账号类型，1 个人、2 商业
  * @param registrationDisabledReason 不允许开始注册的固定原因码，可用时为空串
  */
 public record SmsActivationOptionsVO(String serviceCode, List<AccountRegistrationCatalogVO.Country> countries,
         BigDecimal balance, boolean purchaseEnabled, String disabledReason, boolean registrationEnabled,
-        String registrationDisabledReason) { }
+        String registrationDisabledReason, List<Integer> registrationAccountTypes) { }

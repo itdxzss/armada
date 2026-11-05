@@ -2,6 +2,8 @@ package com.armada.account.controller;
 
 import com.armada.account.model.dto.SmsActivationCreateDTO;
 import com.armada.account.model.dto.SmsActivationQuery;
+import com.armada.account.model.dto.SmsRegistrationStartDTO;
+import com.armada.account.model.enums.AccountTypeCode;
 import com.armada.account.model.vo.SmsActivationOptionsVO;
 import com.armada.account.model.vo.SmsActivationVO;
 import com.armada.account.service.SmsActivationService;
@@ -75,7 +77,9 @@ public class SmsActivationController {
     /** 对等码订单开始 Go 注册；后台任务接手推进，重复点击返回已有办理记录。 */
     @PostMapping("/{id}/registration")
     public ApiResponse<SmsActivationVO> startRegistration(@PathVariable Long id,
+            @RequestBody(required = false) SmsRegistrationStartDTO request,
             @AuthenticationPrincipal AuthPrincipal principal) {
-        return ApiResponse.ok(registrationService.start(id, principal.userId()));
+        int accountType = request == null || request.accountType() == null ? AccountTypeCode.PERSONAL : request.accountType();
+        return ApiResponse.ok(registrationService.start(id, principal.userId(), accountType));
     }
 }

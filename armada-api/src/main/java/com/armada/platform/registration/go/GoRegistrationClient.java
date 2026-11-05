@@ -38,9 +38,6 @@ public final class GoRegistrationClient {
     /** 202 且 error_code 为该值表示 Go 仍在执行原操作。 */
     private static final String IN_PROGRESS = "OPERATION_IN_PROGRESS";
 
-    /** 首次发码请求体；字段名为 Go 合同的 snake_case，proxy 字段名以 Go 最终合同为准。 */
-    private record RequestCodeBody(String phone, @JsonProperty("profile_id") long profileId, String proxy) { }
-
     /** 验码请求体。 */
     private record VerifyBody(String code, @JsonProperty("expected_version") long expectedVersion) { }
 
@@ -66,17 +63,12 @@ public final class GoRegistrationClient {
      * 首次申请验证码（POST code-requests）。
      * @param tenantId 租户，决定使用哪个 Go 凭据
      * @param idempotencyKey 稳定幂等键，重放必须与首次完全相同
-     * @param phone 带加号的国际号码
-     * @param profileId Go 注册配置 ID
-     * @param proxyUrl 本次注册占用代理的完整连接串（含账号密码，由 ProxyResolver 生成，同一代理每次必须相同）；
-     *                 Go 把它存进事务，发码与验码都走它。含密码，禁止写日志
+     * @param request 开始时冻结的号码、配置、代理与账号类型，禁止写日志
      * @return 分类后的结果
      * @throws BusinessException 未启用或该租户未配置时抛出
      */
-    public GoRegistrationResponse requestCode(Long tenantId, String idempotencyKey, String phone, long profileId,
-            String proxyUrl) {
-        return post(tenantId, BASE_PATH + "/code-requests", idempotencyKey,
-                new RequestCodeBody(phone, profileId, proxyUrl));
+    public GoRegistrationResponse requestCode(Long tenantId, String idempotencyKey, GoRegistrationRequest request) {
+        return post(tenantId, BASE_PATH + "/code-requests", idempotencyKey, request);
     }
 
     /**

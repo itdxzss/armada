@@ -45,9 +45,23 @@ class SmsRegistrationMapperH2Test {
             statement.execute(new ClassPathResource("db/migration/V223__sms_registration.sql")
                     .getContentAsString(StandardCharsets.UTF_8));
         }
+        SmsRegistrationMigration.apply(dataSource);
     }
 
     @AfterEach void clearTenant() { TenantContext.clear(); }
+
+    @Test
+    void migrationBackfillsLegacyPersonalRegistrations() throws Exception {
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.execute("ALTER TABLE sms_registration DROP COLUMN account_type");
+            statement.execute("INSERT INTO sms_registration (tenant_id,sms_activation_id,state,go_profile_id,created_at,updated_at) "
+                    + "VALUES (7,100,1,42,1,1)");
+        }
+        SmsRegistrationMigration.apply(dataSource);
+        TenantContext.set(7L);
+        assertThat(mapper.findByActivation(100L).getAccountType()).isEqualTo(1);
+        assertThat(mapper.findByActivation(100L).getGoProfileId()).isEqualTo(42L);
+    }
 
     @Test
     void oneRegistrationPerOrderAndRowsAreTenantScoped() {
@@ -74,6 +88,8 @@ class SmsRegistrationMapperH2Test {
 
         var sent = mapper.findByActivation(100L);
         sent.setState(SmsRegistrationState.WAITING_CODE.code());
+        sent.setAccountType(2);
+        sent.setGoProfileId(99L);
         sent.setGoTransactionId("tx-1");
         sent.setGoVersion(3L);
         sent.setFailureCode("");
@@ -93,6 +109,8 @@ class SmsRegistrationMapperH2Test {
         verifying.setFailureCode("");
         assertThat(mapper.transition(verifying, SmsRegistrationState.WAITING_CODE.code())).isEqualTo(1);
         var after = mapper.findByActivation(100L);
+        assertThat(after.getAccountType()).isEqualTo(1);
+        assertThat(after.getGoProfileId()).isEqualTo(saved.getGoProfileId());
         assertThat(after.getGoTransactionId()).isEqualTo("tx-1");
         assertThat(after.getGoVersion()).isEqualTo(3L);
     }
@@ -173,6 +191,7 @@ class SmsRegistrationMapperH2Test {
         var row = new SmsRegistration();
         row.setSmsActivationId(activationId);
         row.setState(state.code());
+        row.setAccountType(1);
         row.setGoProfileId(42L);
         row.setProxyId(5L);
         row.setFailureCode("");

@@ -33,8 +33,10 @@ public final class GoRegistrationProperties implements InitializingBean {
     public static final class Tenant {
         /** Go 服务端映射到该租户的 Bearer 凭据，仅由服务端环境注入，禁止进日志。 */
         private String token = "";
-        /** 该租户使用的 Go 注册配置 ID。 */
+        /** 该租户个人版 Go 注册配置 ID；0 表示未开放个人注册。 */
         private long profileId;
+        /** 商业版独立配置 ID；0 表示该租户未开放商业注册。 */
+        private long businessProfileId;
 
         /** @return Bearer 凭据 */
         public String getToken() { return token; }
@@ -45,10 +47,17 @@ public final class GoRegistrationProperties implements InitializingBean {
         /** @param profileId Go 注册配置 ID */
         public void setProfileId(long profileId) { this.profileId = profileId; }
 
+        /** @return 商业版 Go 配置 ID */
+        public long getBusinessProfileId() { return businessProfileId; }
+        /** @param businessProfileId 商业版 Go 配置 ID */
+        public void setBusinessProfileId(long businessProfileId) { this.businessProfileId = businessProfileId; }
+
         private boolean valid() {
             return token != null && !token.isBlank()
                     && token.chars().noneMatch(c -> Character.isWhitespace(c) || Character.isISOControl(c))
-                    && profileId > 0;
+                    && profileId >= 0 && businessProfileId >= 0
+                    && (profileId > 0 || businessProfileId > 0)
+                    && (profileId == 0 || profileId != businessProfileId);
         }
     }
 

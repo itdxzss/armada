@@ -43,10 +43,8 @@ public class SmsActivationServiceImpl implements SmsActivationService {
     static final long DEFAULT_LIFETIME = Duration.ofMinutes(20).toMillis();
     /** 平台时间无时区，只用于求两个时间的差值。 */
     private static final DateTimeFormatter PROVIDER_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    /** Grizzly 未启用。 */
-    static final String GRIZZLY_DISABLED = "GRIZZLY_DISABLED";
-    /** Grizzly 未开放取号与状态变更。 */
-    static final String PURCHASE_DISABLED = "GRIZZLY_PURCHASE_DISABLED";
+    /** 服务端未配置 Grizzly API 密钥（GRIZZLY_SMS_API_KEY）。 */
+    static final String GRIZZLY_NOT_CONFIGURED = "GRIZZLY_API_KEY_MISSING";
     /** 手动接码数据访问。 */
     private final SmsActivationMapper mapper;
     /** 记录到响应的转换。 */
@@ -77,7 +75,7 @@ public class SmsActivationServiceImpl implements SmsActivationService {
         var catalog = registrations.catalog();
         String disabled = disabledReason();
         BigDecimal balance = null;
-        if (properties.isEnabled()) {
+        if (properties.isConfigured()) {
             try { balance = grizzly.getBalance(); }
             catch (GrizzlySmsException exception) { LOG.warn("sms activation code=BALANCE_{}", exception.getReason()); }
         }
@@ -256,8 +254,7 @@ public class SmsActivationServiceImpl implements SmsActivationService {
     }
 
     private String disabledReason() {
-        if (!properties.isEnabled()) { return GRIZZLY_DISABLED; }
-        return properties.isPurchasesEnabled() ? "" : PURCHASE_DISABLED;
+        return properties.isConfigured() ? "" : GRIZZLY_NOT_CONFIGURED;
     }
 
     private static void validate(SmsActivationCreateDTO request) {

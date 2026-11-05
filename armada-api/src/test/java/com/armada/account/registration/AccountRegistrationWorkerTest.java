@@ -196,7 +196,7 @@ class AccountRegistrationWorkerTest {
         var builder = org.springframework.web.client.RestClient.builder().baseUrl("https://api.grizzlysms.com");
         var http = org.springframework.test.web.client.MockRestServiceServer.bindTo(builder).build();
         var properties = new com.armada.platform.sms.grizzly.GrizzlySmsProperties();
-        properties.setEnabled(true); properties.setPurchasesEnabled(true); properties.setApiKey("test-only-key");
+        properties.setApiKey("test-only-key");
         var client = new GrizzlySmsClient(builder.build(), new com.fasterxml.jackson.databind.ObjectMapper(), properties);
         http.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam("action", "getNumberV2"))
                 .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam("country", "187"))
@@ -361,7 +361,7 @@ class AccountRegistrationWorkerTest {
         var builder = org.springframework.web.client.RestClient.builder().baseUrl("https://api.grizzlysms.com");
         var http = org.springframework.test.web.client.MockRestServiceServer.bindTo(builder).build();
         var properties = new com.armada.platform.sms.grizzly.GrizzlySmsProperties();
-        properties.setEnabled(true); properties.setPurchasesEnabled(true); properties.setApiKey("test-only-key");
+        properties.setApiKey("test-only-key");
         var client = new GrizzlySmsClient(builder.build(), new com.fasterxml.jackson.databind.ObjectMapper(), properties);
         http.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam("action", "getNumberV2"))
                 .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam("country", "12"))

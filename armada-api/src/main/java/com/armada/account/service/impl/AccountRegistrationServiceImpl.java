@@ -69,8 +69,8 @@ public class AccountRegistrationServiceImpl implements AccountRegistrationServic
     @Override
     public AccountRegistrationCatalogVO catalog() {
         requireTenant();
-        if (!grizzlyProperties.isEnabled()) {
-            return new AccountRegistrationCatalogVO("", "WhatsApp", List.of(), false, "GRIZZLY_DISABLED");
+        if (!grizzlyProperties.isConfigured()) {
+            return new AccountRegistrationCatalogVO("", "WhatsApp", List.of(), false, "GRIZZLY_API_KEY_MISSING");
         }
         GrizzlyService service = whatsapp();
         var countries = grizzly.getCountries().stream().filter(AccountRegistrationServiceImpl::isUnitedStates)
@@ -160,7 +160,7 @@ public class AccountRegistrationServiceImpl implements AccountRegistrationServic
         if (!enabled) { return "REGISTRATION_DISABLED"; }
         if (!environment.getProperty("armada.account.registration.scheduler.enabled", Boolean.class, false)
                 || !environment.acceptsProfiles(Profiles.of("kafka"))) { return "REGISTRATION_SCHEDULER_DISABLED"; }
-        if (!grizzlyProperties.isEnabled() || !grizzlyProperties.isPurchasesEnabled()) { return "GRIZZLY_PURCHASE_DISABLED"; }
+        if (!grizzlyProperties.isConfigured()) { return "GRIZZLY_API_KEY_MISSING"; }
         return "";
     }
 

@@ -52,8 +52,7 @@ class SmsActivationServiceTest {
 
     @BeforeEach
     void setUp() {
-        properties.setEnabled(true);
-        properties.setPurchasesEnabled(true);
+        properties.setApiKey("test-only-key");
         // 办理状态附加与占用判断由 SmsRegistrationService 测试负责，这里让它透传、不占用。
         when(registrationService.disabledReason()).thenReturn("");
         when(registrationService.attach(any())).thenAnswer(invocation -> invocation.getArgument(0));
@@ -118,11 +117,11 @@ class SmsActivationServiceTest {
     }
 
     @Test
-    void disabledPurchaseOrUnknownCountryNeverCallsProvider() {
-        properties.setPurchasesEnabled(false);
+    void missingApiKeyOrUnknownCountryNeverCallsProvider() {
+        properties.setApiKey("");
         assertThatThrownBy(() -> service.create(new SmsActivationCreateDTO("187", BigDecimal.ONE, null), 1L))
-                .hasMessageContaining("GRIZZLY_PURCHASE_DISABLED");
-        properties.setPurchasesEnabled(true);
+                .hasMessageContaining("GRIZZLY_API_KEY_MISSING");
+        properties.setApiKey("test-only-key");
         assertThatThrownBy(() -> service.create(new SmsActivationCreateDTO("999", BigDecimal.ONE, null), 1L))
                 .hasMessageContaining("美国目录");
         assertThatThrownBy(() -> service.create(new SmsActivationCreateDTO("187", BigDecimal.ZERO, null), 1L))

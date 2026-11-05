@@ -117,8 +117,7 @@ class SmsRegistrationFlowH2Test {
         goProperties.setConcurrency(8);
         goProperties.getTenants().put(TENANT, tenant);
         var grizzlyProperties = new GrizzlySmsProperties();
-        grizzlyProperties.setEnabled(true);
-        grizzlyProperties.setPurchasesEnabled(true);
+        grizzlyProperties.setApiKey("test-only-key");
         var converter = Mappers.getMapper(SmsActivationConverter.class);
         registrationService = new SmsRegistrationServiceImpl(registrations, activations, converter, proxies, countries,
                 goProperties);

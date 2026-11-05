@@ -2,12 +2,8 @@ package com.armada.platform.sms.grizzly.exception;
 
 /** 接码客户端固定错误分类；禁止将供应商响应正文用作错误码或消息。 */
 public enum GrizzlySmsFailure {
-    /** 接码集成尚未启用。 */
-    DISABLED,
     /** 服务端未配置 API 密钥。 */
     CREDENTIALS_MISSING,
-    /** 购买及激活状态变更尚未启用。 */
-    MUTATIONS_DISABLED,
     /** 供应商拒绝 API 密钥。 */
     BAD_KEY,
     /** 供应商报告未收到 API 密钥。 */

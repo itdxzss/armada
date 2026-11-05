@@ -41,9 +41,7 @@ flowchart LR
 
 | 环境变量 | 默认值 | 含义 |
 |---|---|---|
-| `GRIZZLY_SMS_ENABLED` | `false` | 启用供应商查询和适配器调用 |
-| `GRIZZLY_SMS_PURCHASES_ENABLED` | `false` | 另外允许取号及订单状态修改 |
-| `GRIZZLY_SMS_API_KEY` | 空 | 开启接码后必须提供的服务端密钥 |
+| `GRIZZLY_SMS_API_KEY` | 空 | 服务端密钥；配置即启用查询与取号，留空则功能不可用（无其他开关） |
 | `GRIZZLY_SMS_CONNECT_TIMEOUT` | `5s` | TCP 连接及连接池等待时间 |
 | `GRIZZLY_SMS_READ_TIMEOUT` | `20s` | 响应及 socket 读取时间 |
 

@@ -72,8 +72,6 @@ armada:
       read-timeout: ${COBALT_READ_TIMEOUT:10s}
   sms:
     grizzly:
-      enabled: ${GRIZZLY_SMS_ENABLED:false}
-      purchases-enabled: ${GRIZZLY_SMS_PURCHASES_ENABLED:false}
       api-key: ${GRIZZLY_SMS_API_KEY:}
       connect-timeout: ${GRIZZLY_SMS_CONNECT_TIMEOUT:5s}
       read-timeout: ${GRIZZLY_SMS_READ_TIMEOUT:20s}

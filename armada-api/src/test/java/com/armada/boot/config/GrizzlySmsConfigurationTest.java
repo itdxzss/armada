@@ -93,30 +93,28 @@ class GrizzlySmsConfigurationTest {
     }
 
     @Test
-    void springCreatesDisabledClientWithoutCredentialsOrNetworkAccess() {
+    void springCreatesUnconfiguredClientWithoutCredentialsOrNetworkAccess() {
         new ApplicationContextRunner()
                 .withUserConfiguration(GrizzlySmsConfiguration.class)
                 .withBean(ObjectMapper.class, ObjectMapper::new)
                 .run(context -> {
                     assertThat(context).hasNotFailed().hasSingleBean(GrizzlySmsClient.class);
-                    assertThat(context.getBean(GrizzlySmsProperties.class).isEnabled()).isFalse();
+                    assertThat(context.getBean(GrizzlySmsProperties.class).isConfigured()).isFalse();
                     assertThatThrownBy(context.getBean(GrizzlySmsClient.class)::getBalance)
                             .isInstanceOf(com.armada.shared.exception.BusinessException.class);
                 });
     }
 
     @Test
-    void springBindsQueriesSeparatelyFromOrderMutations() {
+    void springBindsApiKeyAndTimeouts() {
         new ApplicationContextRunner()
                 .withUserConfiguration(GrizzlySmsConfiguration.class)
                 .withBean(ObjectMapper.class, ObjectMapper::new)
-                .withPropertyValues("armada.sms.grizzly.enabled=true",
-                        "armada.sms.grizzly.api-key=test-only-key", "armada.sms.grizzly.read-timeout=3s")
+                .withPropertyValues("armada.sms.grizzly.api-key=test-only-key", "armada.sms.grizzly.read-timeout=3s")
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     GrizzlySmsProperties properties = context.getBean(GrizzlySmsProperties.class);
-                    assertThat(properties.isEnabled()).isTrue();
-                    assertThat(properties.isPurchasesEnabled()).isFalse();
+                    assertThat(properties.isConfigured()).isTrue();
                     assertThat(properties.getReadTimeout()).isEqualTo(Duration.ofSeconds(3));
                 });
     }

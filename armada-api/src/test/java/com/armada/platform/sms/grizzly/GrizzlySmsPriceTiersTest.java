@@ -31,7 +31,6 @@ class GrizzlySmsPriceTiersTest {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.grizzlysms.com");
         server = MockRestServiceServer.bindTo(builder).build();
         properties = new GrizzlySmsProperties();
-        properties.setEnabled(true);
         properties.setApiKey("test-only-key");
         client = new GrizzlySmsClient(builder.build(), new ObjectMapper(), properties);
     }
@@ -187,7 +186,6 @@ class GrizzlySmsPriceTiersTest {
 
     @Test
     void selectedTierCanBeSentAsEqualMinimumMaximumPriceAndProviderFilter() {
-        properties.setPurchasesEnabled(true);
         server.expect(queryParam("action", "getNumberV2"))
                 .andExpect(queryParam("minPrice", "0.35"))
                 .andExpect(queryParam("maxPrice", "0.35"))

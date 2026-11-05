@@ -208,14 +208,8 @@ public final class GrizzlySmsClient {
     }
 
     private void ensureEnabled(boolean mutation) {
-        if (!properties.isEnabled()) {
-            throw new GrizzlySmsException(GrizzlySmsFailure.DISABLED, false);
-        }
-        if (!StringUtils.hasText(properties.getApiKey())) {
+        if (!properties.isConfigured()) {
             throw new GrizzlySmsException(GrizzlySmsFailure.CREDENTIALS_MISSING, false);
-        }
-        if (mutation && !properties.isPurchasesEnabled()) {
-            throw new GrizzlySmsException(GrizzlySmsFailure.MUTATIONS_DISABLED, false);
         }
     }
 

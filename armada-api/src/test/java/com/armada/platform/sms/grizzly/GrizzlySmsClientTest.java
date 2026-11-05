@@ -42,9 +42,7 @@ class GrizzlySmsClientTest {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.grizzlysms.com");
         server = MockRestServiceServer.bindTo(builder).build();
         properties = new GrizzlySmsProperties();
-        properties.setEnabled(true);
         properties.setApiKey("test-only-key");
-        properties.setPurchasesEnabled(true);
         client = new GrizzlySmsClient(builder.build(), new ObjectMapper(), properties);
     }
 
@@ -319,27 +317,14 @@ class GrizzlySmsClientTest {
     }
 
     @Test
-    void disabledOrMissingCredentialsFailBeforeAnyHttpRequest() {
-        properties.setEnabled(false);
-        assertThatThrownBy(client::getBalance).isInstanceOfSatisfying(GrizzlySmsException.class,
-                ex -> assertThat(ex.getReason()).isEqualTo(GrizzlySmsFailure.DISABLED));
-        properties.setEnabled(true);
-        properties.setApiKey(" ");
-        assertThatThrownBy(client::getBalance).isInstanceOfSatisfying(GrizzlySmsException.class,
-                ex -> assertThat(ex.getReason()).isEqualTo(GrizzlySmsFailure.CREDENTIALS_MISSING));
-        server.verify();
-    }
-
-    @Test
-    void mutationGateBlocksPurchaseAndCancellationButAllowsBalance() {
-        properties.setPurchasesEnabled(false);
-        assertThatThrownBy(() -> client.acquireNumber(numberRequest())).isInstanceOfSatisfying(GrizzlySmsException.class,
-                ex -> assertThat(ex.getReason()).isEqualTo(GrizzlySmsFailure.MUTATIONS_DISABLED));
-        assertThatThrownBy(() -> client.setStatus("123", GrizzlyStatusUpdate.CANCEL))
-                .isInstanceOfSatisfying(GrizzlySmsException.class,
-                        ex -> assertThat(ex.getReason()).isEqualTo(GrizzlySmsFailure.MUTATIONS_DISABLED));
-        server.expect(queryParam("action", "getBalance")).andRespond(withSuccess("ACCESS_BALANCE:0", MediaType.TEXT_PLAIN));
-        assertThat(client.getBalance()).isZero();
+    void missingCredentialsFailBeforeAnyHttpRequest() {
+        for (String blank : new String[]{"", " ", null}) {
+            properties.setApiKey(blank);
+            assertThatThrownBy(client::getBalance).isInstanceOfSatisfying(GrizzlySmsException.class,
+                    ex -> assertThat(ex.getReason()).isEqualTo(GrizzlySmsFailure.CREDENTIALS_MISSING));
+            assertThatThrownBy(() -> client.acquireNumber(numberRequest())).isInstanceOfSatisfying(GrizzlySmsException.class,
+                    ex -> assertThat(ex.getReason()).isEqualTo(GrizzlySmsFailure.CREDENTIALS_MISSING));
+        }
         server.verify();
     }
 

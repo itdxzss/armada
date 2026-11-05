@@ -19,8 +19,7 @@ class AccountRegistrationAvailabilityTest {
     private final GrizzlySmsProperties grizzly = new GrizzlySmsProperties();
 
     private AccountRegistrationServiceImpl service(boolean enabled) {
-        grizzly.setEnabled(true);
-        grizzly.setPurchasesEnabled(true);
+        grizzly.setApiKey("test-only-key");
         return new AccountRegistrationServiceImpl(null, null, null, null, grizzly, cobalt, enabled, environment);
     }
 

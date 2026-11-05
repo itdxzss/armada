@@ -123,9 +123,7 @@ Grizzly SMS 提供号码采购、短信接收查询和订单管理。取得号�
 
 | 环境变量 | 默认值 | 含义 |
 | --- | --- | --- |
-| `GRIZZLY_SMS_ENABLED` | `false` | 启用客户端调用；仅启用构造不会自动采购 |
-| `GRIZZLY_SMS_PURCHASES_ENABLED` | `false` | 当前同时控制购号以及 READY/后续收码/完成/取消操作 |
-| `GRIZZLY_SMS_API_KEY` | 空 | 服务端注入，开启服务时必须有效 |
+| `GRIZZLY_SMS_API_KEY` | 空 | 服务端注入；配置即启用查询与取号，留空则功能不可用（无其他开关） |
 | `GRIZZLY_SMS_CONNECT_TIMEOUT` | `5s` | 连接与连接池等待上限 |
 | `GRIZZLY_SMS_READ_TIMEOUT` | `20s` | 响应与 socket 读取上限 |
 

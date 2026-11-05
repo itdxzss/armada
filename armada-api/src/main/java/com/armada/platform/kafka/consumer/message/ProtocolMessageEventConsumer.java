@@ -37,6 +37,7 @@ public class ProtocolMessageEventConsumer {
     private static final String SOURCE_GROUP_CREATION_MARKETING = "group_creation_marketing";
     private static final String SOURCE_HISTORICAL_GROUP_PULL = "historical_group_pull";
     private static final String SOURCE_SCRIPT_MARKETING = "script_marketing";
+    private static final String SOURCE_MUTUAL_CHAT = "account_group_mutual_chat";
     private static final String SOURCE_CONTACT_TASK = "contact_task";
     private static final String SOURCE_HYPERLINK_TASK = "hyperlink_task";
     private static final String SOURCE_FEED_TASK = "feed_task";
@@ -146,6 +147,7 @@ public class ProtocolMessageEventConsumer {
     private static Long businessId(ProtocolMessageSendResultReportedEvent event) {
         return switch (event.source() == null ? "" : event.source()) {
             case SOURCE_HYPERLINK_TASK -> event.hyperlinkTaskId();
+            case SOURCE_MUTUAL_CHAT -> event.mutualChatTaskId();
             case SOURCE_CONTACT_TASK -> event.contactTaskId();
             case SOURCE_GROUP_CREATION_MARKETING -> event.groupCreationTaskId();
             case SOURCE_HISTORICAL_GROUP_PULL -> event.historicalExecutionId();
@@ -156,6 +158,7 @@ public class ProtocolMessageEventConsumer {
     private static Long businessItemId(ProtocolMessageSendResultReportedEvent event) {
         return switch (event.source() == null ? "" : event.source()) {
             case SOURCE_HYPERLINK_TASK -> event.hyperlinkRecipientId();
+            case SOURCE_MUTUAL_CHAT -> event.mutualChatItemId();
             case SOURCE_CONTACT_TASK -> event.recipientId();
             case SOURCE_GROUP_CREATION_MARKETING -> event.groupCreationItemId();
             case SOURCE_HISTORICAL_GROUP_PULL -> event.historicalMemberId();
@@ -216,27 +219,28 @@ public class ProtocolMessageEventConsumer {
         // 通讯录任务同样没有普通营销三字段关联，按上游既有口径追加一个来源
         boolean contactTask = SOURCE_CONTACT_TASK.equals(source);
         boolean scriptTask = SOURCE_SCRIPT_MARKETING.equals(source);
+        boolean mutualChat = SOURCE_MUTUAL_CHAT.equals(source);
         return new ProtocolMessageSendResultReportedEvent(
                 text(envelope, "eventId"),
                 requiredLong(data, "tenantId", "协议消息发送结果事件缺少 data.tenantId"),
                 groupCreationMarketing || historicalGroupPull || hyperlinkTask
-                        || contactTask || scriptTask || feedTask
+                        || contactTask || scriptTask || feedTask || mutualChat
                         ? longValue(data, "marketingTaskId")
                         : requiredLong(data, "marketingTaskId", "协议消息发送结果事件缺少 data.marketingTaskId"),
                 groupCreationMarketing || historicalGroupPull || hyperlinkTask
-                        || contactTask || scriptTask || feedTask
+                        || contactTask || scriptTask || feedTask || mutualChat
                         ? longValue(data, "targetId")
                         : requiredLong(data, "targetId", "协议消息发送结果事件缺少 data.targetId"),
                 groupCreationMarketing || historicalGroupPull || hyperlinkTask
-                        || contactTask || scriptTask || feedTask
+                        || contactTask || scriptTask || feedTask || mutualChat
                         ? longValue(data, "attemptId")
                         : requiredLong(data, "attemptId", "协议消息发送结果事件缺少 data.attemptId"),
                 groupCreationMarketing || historicalGroupPull || hyperlinkTask
-                        || contactTask || scriptTask || feedTask
+                        || contactTask || scriptTask || feedTask || mutualChat
                         ? longValue(data, "roundNo")
                         : requiredLong(data, "roundNo", "协议消息发送结果事件缺少 data.roundNo"),
                 requiredText(data, "protocolAccountId", "协议消息发送结果事件缺少 data.protocolAccountId"),
-                hyperlinkTask || contactTask || feedTask ? null
+                hyperlinkTask || contactTask || feedTask || mutualChat ? null
                         : requiredText(data, "groupJid", "协议消息发送结果事件缺少 data.groupJid"),
                 scriptTask ? requiredText(data, "commandId", "剧本结果缺少原 commandId") : text(data, "commandId"),
                 requiredBoolean(data, "success", "协议消息发送结果事件缺少 data.success"),
@@ -288,7 +292,13 @@ public class ProtocolMessageEventConsumer {
                 feedTask
                         ? requiredLong(data, "feedTaskAccountId", "feed_task result missing data.feedTaskAccountId")
                         : longValue(data, "feedTaskAccountId"),
-                text(data, "outcome"), booleanValue(data, "terminal"), scriptTask ? quoteContext(data.get("quoteContext")) : null);
+                text(data, "outcome"), booleanValue(data, "terminal"), scriptTask ? quoteContext(data.get("quoteContext")) : null,
+                mutualChat ? requiredLong(data, "mutualChatTaskId", "互聊结果缺少 data.mutualChatTaskId")
+                        : longValue(data, "mutualChatTaskId"),
+                mutualChat ? requiredLong(data, "mutualChatItemId", "互聊结果缺少 data.mutualChatItemId")
+                        : longValue(data, "mutualChatItemId"),
+                mutualChat ? requiredLong(data, "accountId", "互聊结果缺少 data.accountId")
+                        : longValue(data, "accountId"));
     }
 
     private static com.armada.platform.protocol.model.command.MessageQuoteContext quoteContext(JsonNode node) {

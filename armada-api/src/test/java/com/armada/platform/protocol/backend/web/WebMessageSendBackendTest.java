@@ -28,6 +28,27 @@ class WebMessageSendBackendTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
+    void encodesMutualChatAsPrivateTextWithBothIdentifiers() {
+        var backend = new WebMessageSendBackend(outboxService, new ProtocolMasterCommandProperties());
+        var command = new MessageSendCommand(account(),
+                new MessageSendCommand.MessageTarget("19990000002@s.whatsapp.net", MessageSendCommand.TargetKind.PRIVATE),
+                new MessageSendCommand.MessagePayload(MessageType.TEXT, new MessageSendCommand.MessageContent("test",null,null,null),false,null),
+                new MessageSendCommand.MessageCorrelation(7L,"account_group_mutual_chat",null,null,null,null,null,null,null,
+                        new MessageSendCommand.AccountMutualChatCorrelation(81L,92L)),"cmd_mutual_chat",0,0);
+        backend.enqueue(List.of(command));
+        @SuppressWarnings("unchecked") ArgumentCaptor<List<ProtocolMessageOutboxCommand>> captor = ArgumentCaptor.forClass(List.class);
+        verify(outboxService).enqueueMessageCommands(captor.capture());
+        var wire = objectMapper.valueToTree(captor.getValue().getFirst().payload());
+        assertThat(wire.path("mutualChatTaskId").asLong()).isEqualTo(81);
+        assertThat(wire.path("mutualChatItemId").asLong()).isEqualTo(92);
+        assertThat(wire.path("targetKind").asText()).isEqualTo("PRIVATE");
+        assertThat(wire.path("messageType").asText()).isEqualTo("TEXT");
+        assertThat(wire.has("marketingTaskId")).isFalse();
+        assertThat(wire.has("contactTaskId")).isFalse();
+        assertThat(wire.has("groupJid")).isFalse();
+    }
+
+    @Test
     void encodesScriptQuoteWithoutReplacingSenderOrMentionAll() {
         WebMessageSendBackend backend = new WebMessageSendBackend(outboxService, new ProtocolMasterCommandProperties());
         var quote = new com.armada.platform.protocol.model.command.MessageReply("source-id", "120363001@g.us",
@@ -219,7 +240,7 @@ class WebMessageSendBackendTest {
                         null,
                         null,
                         new MessageSendCommand.ContactTaskCorrelation(77L, 88L, 99L, 5L),
-                        null, null, null),
+                        null, null, null, null),
                 "cmd_contact_web",
                 800,
                 0L);

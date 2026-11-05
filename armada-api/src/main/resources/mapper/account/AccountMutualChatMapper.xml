@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.account.mapper.AccountMutualChatMapper">
+ <select id="task" resultType="com.armada.account.model.entity.AccountMutualChatTask">SELECT * FROM account_mutual_chat_task WHERE id=#{id}</select>
+ <select id="lockTask" resultType="com.armada.account.model.entity.AccountMutualChatTask">SELECT * FROM account_mutual_chat_task WHERE id=#{id} FOR UPDATE</select>
+ <select id="byRequest" resultType="com.armada.account.model.entity.AccountMutualChatTask">SELECT * FROM account_mutual_chat_task WHERE created_by=#{userId} AND request_id=#{requestId}</select>
+ <insert id="insertTask" useGeneratedKeys="true" keyProperty="id">
+  INSERT INTO account_mutual_chat_task (tenant_id,created_by,request_id,left_group_id,right_group_id,left_group_name,right_group_name,left_count,right_count,left_text,right_text,interval_seconds,status,created_at,updated_at)
+  VALUES (#{tenantId},#{createdBy},#{requestId},#{leftGroupId},#{rightGroupId},#{leftGroupName},#{rightGroupName},#{leftCount},#{rightCount},#{leftText},#{rightText},#{intervalSeconds},#{status},#{createdAt},#{updatedAt})
+ </insert>
+ <insert id="insertItems">
+  INSERT INTO account_mutual_chat_item (tenant_id,task_id,actor_id,target_id,actor_phone,target_phone,protocol_account_id,protocol_backend,status,attempt_no,direction,next_execute_at,created_at,updated_at) VALUES
+  <foreach collection="items" item="i" separator=",">(#{i.tenantId},#{i.taskId},#{i.actorId},#{i.targetId},#{i.actorPhone},#{i.targetPhone},#{i.protocolAccountId},#{i.protocolBackend},#{i.status},0,#{i.direction},0,#{i.createdAt},#{i.updatedAt})</foreach>
+ </insert>
+ <sql id="ownerFilter"><if test="ownerId != null">AND created_by=#{ownerId}</if></sql>
+ <select id="countTasks" resultType="long">SELECT COUNT(*) FROM account_mutual_chat_task WHERE 1=1 <include refid="ownerFilter"/></select>
+ <select id="tasks" resultType="com.armada.account.model.entity.AccountMutualChatTask">SELECT * FROM account_mutual_chat_task WHERE 1=1 <include refid="ownerFilter"/> ORDER BY id DESC LIMIT #{q.pageSize} OFFSET #{q.offset}</select>
+ <select id="stats" resultType="com.armada.account.model.vo.AccountMutualChatStatsVO">
+  SELECT COUNT(*) AS total,
+   COALESCE(SUM(CASE WHEN i.status=1 THEN 1 ELSE 0 END),0) AS pending,
+   COALESCE(SUM(CASE WHEN i.status=2 THEN 1 ELSE 0 END),0) AS submitted,
+   COALESCE(SUM(CASE WHEN i.status=3 THEN 1 ELSE 0 END),0) AS success,
+   COALESCE(SUM(CASE WHEN i.status=4 THEN 1 ELSE 0 END),0) AS failed,
+   COALESCE(SUM(CASE WHEN i.status=5 THEN 1 ELSE 0 END),0) AS `unknown`,
+   COALESCE(SUM(CASE WHEN i.status=6 THEN 1 ELSE 0 END),0) AS canceled,
+   COALESCE(SUM(CASE WHEN i.actor_id&lt;i.target_id AND i.status=3 AND r.status=3 THEN 1 ELSE 0 END),0) AS mutual_pairs,
+   COALESCE(SUM(CASE WHEN i.actor_id&lt;i.target_id AND ((i.status=3 AND r.status&lt;&gt;3) OR (i.status&lt;&gt;3 AND r.status=3)) THEN 1 ELSE 0 END),0) AS one_way_pairs
+  FROM account_mutual_chat_item i LEFT JOIN account_mutual_chat_item r ON r.task_id=i.task_id AND r.tenant_id=i.tenant_id AND r.actor_id=i.target_id AND r.target_id=i.actor_id
+  WHERE i.task_id=#{taskId}
+ </select>
+ <sql id="itemFilter">task_id=#{taskId}<if test="q.status != null"> AND status=#{q.status}</if></sql>
+ <select id="countItems" resultType="long">SELECT COUNT(*) FROM account_mutual_chat_item WHERE <include refid="itemFilter"/></select>
+ <select id="items" resultType="com.armada.account.model.entity.AccountMutualChatItem">SELECT * FROM account_mutual_chat_item WHERE <include refid="itemFilter"/> ORDER BY id LIMIT #{q.pageSize} OFFSET #{q.offset}</select>
+ <select id="item" resultType="com.armada.account.model.entity.AccountMutualChatItem">SELECT * FROM account_mutual_chat_item WHERE id=#{id}</select>
+ <select id="byCommand" resultType="com.armada.account.model.entity.AccountMutualChatItem">SELECT * FROM account_mutual_chat_item WHERE command_id=#{commandId}</select>
+ <select id="firstPending" resultType="com.armada.account.model.entity.AccountMutualChatItem">SELECT * FROM account_mutual_chat_item WHERE task_id=#{taskId} AND actor_id=#{actorId} AND status=1 ORDER BY id LIMIT 1</select>
+ <select id="actorBlocked" resultType="long">SELECT COUNT(*) FROM account_mutual_chat_item WHERE actor_id=#{actorId} AND (status=2 OR next_execute_at&gt;#{now})</select>
+ <update id="updateItem">UPDATE account_mutual_chat_item SET status=#{status},command_id=#{commandId},attempt_no=#{attemptNo},protocol_message_id=#{protocolMessageId},reason_code=#{reasonCode},submitted_at=#{submittedAt},result_at=#{resultAt},next_execute_at=#{nextExecuteAt},updated_at=#{updatedAt} WHERE id=#{id}</update>
+ <update id="setTaskStatus">UPDATE account_mutual_chat_task SET status=#{status},updated_at=#{now} WHERE id=#{id}</update>
+ <update id="cancelPending">UPDATE account_mutual_chat_item SET status=6,reason_code='TASK_STOPPED',updated_at=#{now} WHERE task_id=#{taskId} AND status=1</update>
+ <update id="retryFailed">UPDATE account_mutual_chat_item SET status=1,command_id=NULL,protocol_message_id=NULL,reason_code=NULL,updated_at=#{now} WHERE task_id=#{taskId} AND status IN (4,5,6)</update>
+ <update id="expireSubmitted">UPDATE account_mutual_chat_item SET status=5,reason_code='RESULT_TIMEOUT',result_at=#{now},next_execute_at=#{now}+(SELECT t.interval_seconds*1000 FROM account_mutual_chat_task t WHERE t.id=#{taskId}) ,updated_at=#{now} WHERE task_id=#{taskId} AND status=2 AND submitted_at&lt;=#{deadline}</update>
+ <select id="scan" resultType="com.armada.account.model.dto.AccountMutualChatWork">
+  SELECT i.tenant_id,i.task_id,i.actor_id FROM account_mutual_chat_item i
+  INNER JOIN account_mutual_chat_task t ON t.id=i.task_id AND t.tenant_id=i.tenant_id
+  WHERE t.status IN (1,4) AND i.status=1 AND NOT EXISTS
+   (SELECT 1 FROM account_mutual_chat_item b WHERE b.tenant_id=i.tenant_id AND b.actor_id=i.actor_id AND (b.status=2 OR b.next_execute_at&gt;#{now}))
+  GROUP BY i.tenant_id,i.task_id,i.actor_id ORDER BY MIN(i.updated_at),MIN(i.id) LIMIT #{limit}
+ </select>
+ <select id="expired" resultType="com.armada.account.model.dto.AccountMutualChatWork">
+  SELECT tenant_id,task_id,MIN(actor_id) AS actor_id FROM account_mutual_chat_item WHERE status=2 AND submitted_at&lt;=#{deadline} GROUP BY tenant_id,task_id ORDER BY MIN(submitted_at) LIMIT #{limit}
+ </select>
+</mapper>

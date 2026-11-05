@@ -1,0 +1,77 @@
+2026-11-05 / 账号分组互聊 / Java 离线验证
+环境：JDK 21.0.12 / Maven 离线依赖 / H2 / Mockito 显式本地 Byte Buddy agent
+基线：dd16d2f2bc4cb55909448066bbee48b609ed9b02 + 下列 44 个文件；无其他会话源码。
+全 src/main 与 src/test 编译；运行指定的 14 个测试类，不代表后端全量测试。
+
+命令：
+JAVA_HOME=/Users/daishuaishuai/Library/Java/JavaVirtualMachines/temurin-21.0.12.1/Contents/Home mvn -q -o \
+  -f /private/tmp/account-mutual-chat-20261105/backend-isolated/armada-api/pom.xml \
+  -DargLine=-javaagent:/Users/daishuaishuai/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.19/byte-buddy-agent-1.14.19.jar \
+  -Dtest=AccountMutualChatPolicyTest,AccountMutualChatH2Test,AccountMutualChatMessageContractTest,AccountMutualContactH2Test,AccountMutualContactPolicyTest,ProtocolMessageEventConsumerTest,ProtocolCommandOutboxServiceImplTest,WebMessageSendBackendTest,AndroidMessageSendBackendTest,ContactTaskMessageCommandFactoryTest,ContactTaskSendResultSinkTest,ContactTaskReceiptH2Test,FeedTaskSendResultSinkTest,ScriptMarketingExecutionTest test
+
+结果（tests / failures / errors / skipped）：
+com.armada.account.service.AccountMutualChatH2Test: 22 / 0 / 0 / 0
+com.armada.account.service.AccountMutualChatMessageContractTest: 3 / 0 / 0 / 0
+com.armada.account.service.AccountMutualChatPolicyTest: 2 / 0 / 0 / 0
+com.armada.account.service.AccountMutualContactH2Test: 11 / 0 / 0 / 0
+com.armada.account.service.AccountMutualContactPolicyTest: 2 / 0 / 0 / 0
+com.armada.contact.task.ContactTaskMessageCommandFactoryTest: 10 / 0 / 0 / 0
+com.armada.contact.task.ContactTaskReceiptH2Test: 32 / 0 / 0 / 0
+com.armada.contact.task.ContactTaskSendResultSinkTest: 9 / 0 / 0 / 0
+com.armada.feed.task.service.FeedTaskSendResultSinkTest: 2 / 0 / 0 / 0
+com.armada.marketing.script.ScriptMarketingExecutionTest: 30 / 0 / 0 / 0
+com.armada.platform.kafka.consumer.message.ProtocolMessageEventConsumerTest: 16 / 0 / 0 / 0
+com.armada.platform.protocol.backend.android.AndroidMessageSendBackendTest: 18 / 0 / 0 / 0
+com.armada.platform.protocol.backend.web.WebMessageSendBackendTest: 7 / 0 / 0 / 0
+com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImplTest: 51 / 0 / 0 / 0
+TOTAL: 215 / 0 / 0 / 0
+
+xmllint --noout armada-api/src/main/resources/mapper/account/AccountMutualChatMapper.xml：通过
+python3 .harness/wiki/test_api_docs.py：通过，1 项
+python3 .harness/changes/account-group-mutual-chat/generate-model.py：通过，离线生成两表
+
+本任务覆盖文件 SHA256（不是整仓改动清单）：
+24ef0e87e9cb7280bed8db95029c5bbfb359f15ae3a708aee79a3728d0c3a7e0  armada-api/src/main/java/com/armada/account/controller/AccountMutualChatController.java
+56de8435c9ed74689cd38c6fb2feedb67bae73e95c0b9944aaa192bf57beedb6  armada-api/src/main/java/com/armada/account/converter/AccountMutualChatConverter.java
+ea4d2596d329888fb1828bda120d35f683163b83283151bc250c59bf5e5762b7  armada-api/src/main/java/com/armada/account/mapper/AccountMutualChatMapper.java
+dbfb69cb57fef6faf8aa3c5969838a19a737bccf129fe8850451ab56127979a5  armada-api/src/main/java/com/armada/account/model/dto/AccountMutualChatCreateDTO.java
+94d2188fa141e2549b4be55531c3397d790ebe4e095583c57916e4c238497282  armada-api/src/main/java/com/armada/account/model/dto/AccountMutualChatQuery.java
+1b8fee1d1bcc5a005ec12e66ef65951dfcaaa66fcf257a2e232a64dc64e918d0  armada-api/src/main/java/com/armada/account/model/dto/AccountMutualChatWork.java
+77bad5f6c422674390c87c36ed304fd4182c5f203c566aff89775218e15adcab  armada-api/src/main/java/com/armada/account/model/entity/AccountMutualChatItem.java
+fa5f097314627da915eee9ef5e52cc5c58678f042a21589388e09e6e1e4f528f  armada-api/src/main/java/com/armada/account/model/entity/AccountMutualChatTask.java
+f4da0d91247951d6fbb9b70b98881533cfbc0f4b7b8a0729af6edc36a32be5ca  armada-api/src/main/java/com/armada/account/model/enums/AccountMutualChatDirection.java
+bf891743517e22d7891c5d9fcdc6a6e873123f4ebc5a45f142d6b5448701d512  armada-api/src/main/java/com/armada/account/model/enums/AccountMutualChatStatus.java
+bef8672eb7cf53dc39f3bd6dcad541695c879d6a2ce0e09608f8b77dff376680  armada-api/src/main/java/com/armada/account/model/enums/AccountMutualChatTaskStatus.java
+e7c50b61425d3c85822ae86a7c016d113d27df8336ba6f7ff390b01fed58c655  armada-api/src/main/java/com/armada/account/model/vo/AccountMutualChatItemVO.java
+cde96cd22ab62d18acb715c53b984d55053090e79b146082d172620a4a8890b3  armada-api/src/main/java/com/armada/account/model/vo/AccountMutualChatStatsVO.java
+21add646acf673f2856f25ba1f31717d4f955dabe8784331f41db6dbcc595469  armada-api/src/main/java/com/armada/account/model/vo/AccountMutualChatTaskVO.java
+a3a865f07031507011a8e51a737b0cc298d2325fc5df5faf1fafd5293eff2097  armada-api/src/main/java/com/armada/account/service/AccountMutualChatPolicy.java
+438b88bb47f7e0f141b0edf329410796a853ab4f13e134681a9d76fa2af2f13a  armada-api/src/main/java/com/armada/account/service/AccountMutualChatResultSink.java
+0a96895789ffb66b90571187fcf91b931ec7a45531d381637fa09f18beab5662  armada-api/src/main/java/com/armada/account/service/AccountMutualChatScheduler.java
+0caf5706f783800ac6a3a46039514edd220b09fdb1c3e3cbac3e412d567ea10d  armada-api/src/main/java/com/armada/account/service/AccountMutualChatService.java
+44cfdfe1a44727c09ba872dd6a84b7f031efc100e338a7b6e2897887916a4524  armada-api/src/main/java/com/armada/account/service/AccountMutualChatTransactions.java
+559f833bb7c7788339ad3b8736733fbaf2545dbf7cc76a9064d7af2c802e3f90  armada-api/src/main/java/com/armada/account/service/AccountMutualGroupPlanner.java
+de6216f80c5969e148283da4d59469274de7a4124cfe291122b27c023a86d537  armada-api/src/main/java/com/armada/account/service/impl/AccountMutualChatServiceImpl.java
+1a8b7b065bc113160aefff29df02fe56f151e84bfb24380d93eb19b75d690513  armada-api/src/main/java/com/armada/account/service/impl/AccountMutualContactServiceImpl.java
+29c48b6a41a46a6b540fa75fb19981d50c5f3f524f686973fd74c50e5a5320f3  armada-api/src/main/java/com/armada/contact/task/service/ContactTaskMessageCommandFactory.java
+3a024a179acc76243d03b9d21879ec2edc195efedd17247df14945f31a01b979  armada-api/src/main/java/com/armada/feed/task/service/FeedTaskMessageCommandFactory.java
+e71379e274636f6d2d8b46ac9b84814229450762e9dba94a80ed437fedcc08d9  armada-api/src/main/java/com/armada/marketing/script/service/ScriptMarketingExecutionService.java
+3c12eecac3c2a8e8f5eb28eea3d931430cb56c34c1c574195397293c385926f9  armada-api/src/main/java/com/armada/marketing/script/service/ScriptMarketingPacedExecutionService.java
+4cc8052077175c19cd5777ae0aab8bf1b29e950aea8daac6f985f8f6498d9a5d  armada-api/src/main/java/com/armada/platform/kafka/consumer/message/ProtocolMessageEventConsumer.java
+2a22f51cbacfa7411cb2dd87fb4e7532075d943b0f1f27ca513f4e4eaf6065e6  armada-api/src/main/java/com/armada/platform/kafka/consumer/message/ProtocolMessageSendResultReportedEvent.java
+e2647b1b2fb9960260e245fd849f8106cc40422d723cd0d17213a7e0b22b3579  armada-api/src/main/java/com/armada/platform/protocol/backend/android/AndroidMessageSendBackend.java
+47057578f3778784249fb15c475a2c2bcf8f8d76cbf61ce6eec249f7d6e1839b  armada-api/src/main/java/com/armada/platform/protocol/backend/web/WebMessageSendBackend.java
+ada652e97dcd65bd430a443efd334cdd861ddafdc3f6159969b973c39e2870fb  armada-api/src/main/java/com/armada/platform/protocol/model/command/MessageSendCommand.java
+dcb2b070409e9852e1228f0c76a5e22907c82c898b89127dee0bbc4150f5f3ad  armada-api/src/main/java/com/armada/platform/protocol/service/impl/ProtocolCommandOutboxServiceImpl.java
+0e8c6dc5f8352e5d558186e28d61f54e0b2603c2e9f26ae2c76930d6720f1db2  armada-api/src/main/resources/db/migration/V227__account_mutual_chat.sql
+3f017fc20c594a1bb2a4488c8820d8f298d2860e5f476f650c397b0b4f01aaa3  armada-api/src/main/resources/mapper/account/AccountMutualChatMapper.xml
+7a94e9a57e088e2c00e3cb79f10e984cb7b4886e8a36db4527eb250827a4cbf3  armada-api/src/test/java/com/armada/account/service/AccountMutualChatH2Test.java
+6a67746fee78f50891035d7a4f283a8971302c631276d32070ebfe3a5cde5ff5  armada-api/src/test/java/com/armada/account/service/AccountMutualChatMessageContractTest.java
+b4d4afcb9bfe6f11ce5d10198fb93bae788ac90b08627190c7bdf2af6a6ecd3e  armada-api/src/test/java/com/armada/account/service/AccountMutualChatPolicyTest.java
+e54ea979c73bf77f8fb4b6ed79e14264b2f4d49854f3b1d2b86a569995dc2ba6  armada-api/src/test/java/com/armada/account/service/AccountMutualContactH2Test.java
+985c8d68d1685a9d95d9146fca02bbb985c7c47f8241768bbb424c0d616a94d3  armada-api/src/test/java/com/armada/contact/task/ContactTaskReceiptH2Test.java
+99237fc6fedced6a32cbd5e1e6c11e0dceecc9c29ef73ceea6b5d0613a0db70c  armada-api/src/test/java/com/armada/feed/task/service/FeedTaskSendResultSinkTest.java
+f2ec9c1f0a26b73855293b1d4ccdf2368cc85b4030374b913e25fb16b4bd89e3  armada-api/src/test/java/com/armada/marketing/script/ScriptMarketingExecutionTest.java
+a6778821dc5958d15761328a9e420009f6ef2c61d91d14307698ef97e01ed63a  armada-api/src/test/java/com/armada/platform/protocol/backend/android/AndroidMessageSendBackendTest.java
+19049774b34fb433845c5266049f8e1684d2e6b2ec01c759ff1b71554885e888  armada-api/src/test/java/com/armada/platform/protocol/backend/web/WebMessageSendBackendTest.java
+1af141eacbecdc31e16bc075947ed074e03c99b82a95d44ffdb3c1a25e889967  armada-api/src/test/java/com/armada/platform/protocol/service/impl/ProtocolCommandOutboxServiceImplTest.java

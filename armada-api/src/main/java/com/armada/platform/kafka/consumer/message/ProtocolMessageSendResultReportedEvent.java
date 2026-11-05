@@ -38,6 +38,9 @@ package com.armada.platform.kafka.consumer.message;
  * @param hyperlinkTaskId 超链任务 ID;source=hyperlink_task 时使用
  * @param hyperlinkRecipientId 超链任务收件人 ID;source=hyperlink_task 时使用
  * @param outcome         协议层判定结果
+ * @param mutualChatTaskId 互聊任务 ID
+ * @param mutualChatItemId 互聊方向明细 ID
+ * @param accountId 控端发送账号 ID
  * @param terminal        是否终态
  */
 public record ProtocolMessageSendResultReportedEvent(
@@ -75,7 +78,10 @@ public record ProtocolMessageSendResultReportedEvent(
         Long feedTaskAccountId,
         String outcome,
         Boolean terminal,
-        com.armada.platform.protocol.model.command.MessageQuoteContext quoteContext
+        com.armada.platform.protocol.model.command.MessageQuoteContext quoteContext,
+        Long mutualChatTaskId,
+        Long mutualChatItemId,
+        Long accountId
 ) {
     /** 上游 29 参构造兼容：不触碰上游既有调用点，通讯录三字段默认为空。 */
     public ProtocolMessageSendResultReportedEvent(
@@ -91,7 +97,7 @@ public record ProtocolMessageSendResultReportedEvent(
                 workerId, groupCreationTaskId, groupCreationItemId, source, groupStatus,
                 groupStatusReason, groupStatusCheckedAt, historicalExecutionId, historicalMemberId,
                 null, null, null, jid, targetKind, hyperlinkTaskId, hyperlinkRecipientId,
-                null, null, outcome, terminal, null);
+                null, null, outcome, terminal, null, null, null, null);
     }
 
     /** 通讯录营销事件构造兼容：超链与 outcome 字段默认为空。 */
@@ -107,7 +113,7 @@ public record ProtocolMessageSendResultReportedEvent(
                 workerId, groupCreationTaskId, groupCreationItemId, source, groupStatus,
                 groupStatusReason, groupStatusCheckedAt, historicalExecutionId, historicalMemberId,
                 contactTaskId, taskAccountId, recipientId, groupJid,
-                groupJid == null ? null : "GROUP", null, null, null, null, null, null, null);
+                groupJid == null ? null : "GROUP", null, null, null, null, null, null, null, null, null, null);
     }
 
     /** 已扩展通用 target/correlation、但尚无 outcome 的事件构造兼容。 */
@@ -124,7 +130,7 @@ public record ProtocolMessageSendResultReportedEvent(
                 workerId, groupCreationTaskId, groupCreationItemId, source, groupStatus,
                 groupStatusReason, groupStatusCheckedAt, historicalExecutionId, historicalMemberId,
                 null, null, null, jid, targetKind, hyperlinkTaskId, hyperlinkRecipientId,
-                null, null, null, null, null);
+                null, null, null, null, null, null, null, null);
     }
 
     /** 存量群营销事件构造兼容；通用 target 与 hyperlink 关联默认为空。 */
@@ -139,6 +145,6 @@ public record ProtocolMessageSendResultReportedEvent(
                 groupJid, commandId, success, messageId, reasonCode, reasonMessage, timestamp,
                 workerId, groupCreationTaskId, groupCreationItemId, source, groupStatus,
                 groupStatusReason, groupStatusCheckedAt, historicalExecutionId, historicalMemberId,
-                null, null, null, groupJid, "GROUP", null, null, null, null, null, null, null);
+                null, null, null, groupJid, "GROUP", null, null, null, null, null, null, null, null, null, null);
     }
 }

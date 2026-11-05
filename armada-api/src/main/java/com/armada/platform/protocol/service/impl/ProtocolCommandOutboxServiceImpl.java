@@ -156,6 +156,9 @@ public class ProtocolCommandOutboxServiceImpl
     /** 超链任务唯一 recipient 聚合类型。 */
     public static final String AGGREGATE_TYPE_HYPERLINK_TASK_RECIPIENT = "HYPERLINK_TASK_RECIPIENT";
 
+    /** 账号分组互聊单方向消息事实。 */
+    public static final String AGGREGATE_TYPE_ACCOUNT_MUTUAL_CHAT_ITEM = "ACCOUNT_MUTUAL_CHAT_ITEM";
+    private static final String SOURCE_MUTUAL_CHAT = "account_group_mutual_chat";
     public static final String AGGREGATE_TYPE_CONTACT_TASK_RECIPIENT = "CONTACT_TASK_RECIPIENT";
 
     public static final String AGGREGATE_TYPE_FEED_TASK_ACCOUNT = "FEED_TASK_ACCOUNT";
@@ -1400,7 +1403,10 @@ public class ProtocolCommandOutboxServiceImpl
         row.setCommandType(command.target().kind() == MessageSendCommand.TargetKind.STATUS
                 ? COMMAND_TYPE_STATUS_PUBLISH_REQUESTED
                 : COMMAND_TYPE_MESSAGE_SEND_REQUESTED);
-        if (command.correlation().scriptRecordId() != null) {
+        if (command.correlation().mutualChat() != null) {
+            row.setAggregateType(AGGREGATE_TYPE_ACCOUNT_MUTUAL_CHAT_ITEM);
+            row.setAggregateId(command.correlation().mutualChat().itemId());
+        } else if (command.correlation().scriptRecordId() != null) {
             row.setAggregateType(AGGREGATE_TYPE_SCRIPT_MARKETING_SEND_RECORD);
             row.setAggregateId(command.correlation().scriptRecordId());
         } else if (command.correlation().groupCreation() != null) {
@@ -2129,11 +2135,27 @@ public class ProtocolCommandOutboxServiceImpl
         if (correlation.tenantId() == null || isBlank(correlation.source())) {
             throw new BusinessException(ErrorCode.VALIDATION, "营销消息发送命令缺少关联字段");
         }
+        if (SOURCE_MUTUAL_CHAT.equals(correlation.source()) || correlation.mutualChat() != null) {
+            if (!SOURCE_MUTUAL_CHAT.equals(correlation.source()) || correlation.mutualChat() == null
+                    || correlation.mutualChat().taskId() == null || correlation.mutualChat().itemId() == null
+                    || correlation.mutualChat().taskId() <= 0 || correlation.mutualChat().itemId() <= 0
+                    || correlation.marketing() != null || correlation.groupCreation() != null
+                    || correlation.historicalGroup() != null || correlation.contactTask() != null
+                    || correlation.feedTask() != null || correlation.hyperlink() != null
+                    || correlation.scriptRecordId() != null
+                    || outboxCommand.command().target().kind() != MessageSendCommand.TargetKind.PRIVATE
+                    || outboxCommand.command().payload().type() != com.armada.platform.protocol.model.enums.MessageType.TEXT
+                    || !correlation.tenantId().equals(TenantContext.get())) {
+                throw new BusinessException(ErrorCode.VALIDATION, "互聊消息缺少唯一方向关联或租户不匹配");
+            }
+            return;
+        }
         if (SOURCE_SCRIPT_MARKETING.equals(correlation.source()) || correlation.scriptRecordId() != null) {
             if (!SOURCE_SCRIPT_MARKETING.equals(correlation.source()) || correlation.scriptRecordId() == null
                     || correlation.scriptRecordId() <= 0 || correlation.marketing() != null
                     || correlation.groupCreation() != null || correlation.historicalGroup() != null
-                    || correlation.contactTask() != null || correlation.feedTask() != null
+                    || correlation.contactTask() != null || correlation.mutualChat() != null
+                    || correlation.feedTask() != null
                     || correlation.hyperlink() != null
                     || outboxCommand.command().target().kind() != MessageSendCommand.TargetKind.GROUP
                     || !correlation.tenantId().equals(TenantContext.get())) {
@@ -2147,6 +2169,7 @@ public class ProtocolCommandOutboxServiceImpl
                     || correlation.marketing() != null
                     || correlation.historicalGroup() != null
                     || correlation.contactTask() != null
+                    || correlation.mutualChat() != null
                     || correlation.feedTask() != null
                     || correlation.hyperlink() != null
                     || outboxCommand.command().target().kind()
@@ -2161,6 +2184,7 @@ public class ProtocolCommandOutboxServiceImpl
                     || correlation.historicalGroup().memberId() == null
                     || correlation.marketing() != null
                     || correlation.contactTask() != null
+                    || correlation.mutualChat() != null
                     || correlation.feedTask() != null
                     || correlation.hyperlink() != null
                     || outboxCommand.command().target().kind()
@@ -2180,6 +2204,7 @@ public class ProtocolCommandOutboxServiceImpl
                     || correlation.groupCreation() != null
                     || correlation.historicalGroup() != null
                     || correlation.contactTask() != null
+                    || correlation.mutualChat() != null
                     || correlation.feedTask() != null
                     || outboxCommand.command().target().kind()
                         != MessageSendCommand.TargetKind.PRIVATE) {
@@ -2200,6 +2225,7 @@ public class ProtocolCommandOutboxServiceImpl
                     || correlation.marketing() != null
                     || correlation.groupCreation() != null
                     || correlation.historicalGroup() != null
+                    || correlation.mutualChat() != null
                     || correlation.feedTask() != null
                     || correlation.hyperlink() != null
                     || outboxCommand.command().target().kind()
@@ -2212,7 +2238,7 @@ public class ProtocolCommandOutboxServiceImpl
             throw new BusinessException(ErrorCode.VALIDATION, "通讯录任务消息命令缺少收件人关联");
         }
         if (correlation.feedTask() != null) {
-            if (!SOURCE_FEED_TASK.equals(correlation.source())
+            if (correlation.mutualChat() != null || !SOURCE_FEED_TASK.equals(correlation.source())
                     || correlation.feedTask().taskId() == null
                     || correlation.feedTask().taskAccountId() == null
                     || correlation.feedTask().roundNo() == null
@@ -2241,7 +2267,8 @@ public class ProtocolCommandOutboxServiceImpl
                 || correlation.groupCreation() != null
                 || correlation.historicalGroup() != null
                 || correlation.contactTask() != null
-                || correlation.feedTask() != null) {
+                || correlation.mutualChat() != null
+                    || correlation.feedTask() != null) {
             throw new BusinessException(ErrorCode.VALIDATION, "营销消息发送命令缺少营销回写字段");
         }
     }

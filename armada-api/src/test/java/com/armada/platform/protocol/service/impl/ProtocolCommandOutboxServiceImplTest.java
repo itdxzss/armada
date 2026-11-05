@@ -1351,6 +1351,46 @@ class ProtocolCommandOutboxServiceImplTest {
     }
 
     @Test
+    void mutualChatUsesOwnAggregateAndRejectsMissingOrMixedBusinessCorrelation() {
+        TenantContext.set(1L);
+        try {
+            var service = newService(List.of(), List.of());
+            var ref = new MessageSendCommand.AccountMutualChatCorrelation(81L, 92L);
+            var correlation = new MessageSendCommand.MessageCorrelation(1L, "account_group_mutual_chat",
+                    null, null, null, null, null, null, null, ref);
+            when(mapper.batchInsertPending(anyList())).thenReturn(1);
+            service.enqueueMessageCommands(List.of(mutualChatOutbox(correlation, MessageSendCommand.TargetKind.PRIVATE)));
+            assertThat(capturedRows()).singleElement().satisfies(row -> {
+                assertThat(row.getAggregateType()).isEqualTo("ACCOUNT_MUTUAL_CHAT_ITEM");
+                assertThat(row.getAggregateId()).isEqualTo(92L);
+            });
+            for (var invalid : List.of(
+                    new MessageSendCommand.MessageCorrelation(1L, "account_group_mutual_chat", null, null, null, null, null, null, null, null),
+                    new MessageSendCommand.MessageCorrelation(1L, "account_group_mutual_chat", null, null, null, null, null, null, null,
+                            new MessageSendCommand.AccountMutualChatCorrelation(81L, null)),
+                    new MessageSendCommand.MessageCorrelation(1L, "contact_task", null, null, null,
+                            new MessageSendCommand.ContactTaskCorrelation(1L,2L,3L,1L), null,null,null,ref),
+                    new MessageSendCommand.MessageCorrelation(1L, "account_group_mutual_chat",
+                            new MessageSendCommand.MarketingCorrelation(1L,2L,3L,1L), null,null,null,null,null,null,ref),
+                    new MessageSendCommand.MessageCorrelation(2L, "account_group_mutual_chat", null,null,null,null,null,null,null,ref))) {
+                assertThatThrownBy(() -> service.enqueueMessageCommands(List.of(mutualChatOutbox(invalid, MessageSendCommand.TargetKind.PRIVATE))))
+                        .isInstanceOf(BusinessException.class);
+            }
+            assertThatThrownBy(() -> service.enqueueMessageCommands(List.of(mutualChatOutbox(correlation, MessageSendCommand.TargetKind.GROUP))))
+                    .isInstanceOf(BusinessException.class);
+        } finally { TenantContext.clear(); }
+    }
+
+    private static ProtocolMessageOutboxCommand mutualChatOutbox(MessageSendCommand.MessageCorrelation correlation,
+            MessageSendCommand.TargetKind kind) {
+        var command = new MessageSendCommand(new ProtocolAccountRef(501L, ProtocolBackend.WEB,"acc_web","19990000001"),
+                new MessageSendCommand.MessageTarget("19990000002@s.whatsapp.net",kind),
+                new MessageSendCommand.MessagePayload(MessageType.TEXT,new MessageSendCommand.MessageContent("test",null,null,null),false,null),
+                correlation,"cmd_mutual",0,0);
+        return new ProtocolMessageOutboxCommand(command,ProtocolBackend.WEB,"protocol.master.commands.v1","acc_web",Map.of("source",correlation.source()));
+    }
+
+    @Test
     void scriptMessageUsesIndependentAggregateAndPreservesOriginalCommandId() {
         TenantContext.set(1L);
         try {
@@ -1361,7 +1401,7 @@ class ProtocolCommandOutboxServiceImplTest {
                 new MessageSendCommand.MessagePayload(MessageType.TEXT,
                 new MessageSendCommand.MessageContent("hello", null, null, null), false, null),
                 new MessageSendCommand.MessageCorrelation(1L, "script_marketing", null, null,
-                        null, null, null, null, 77L), "cmd_script", 500, 0L);
+                        null, null, null, null, 77L, null), "cmd_script", 500, 0L);
         when(mapper.batchInsertPending(anyList())).thenReturn(1);
         service.enqueueMessageCommands(List.of(new ProtocolMessageOutboxCommand(command,
                 ProtocolBackend.WEB, "protocol.master.commands.v1", "acc_web",
@@ -1398,7 +1438,7 @@ class ProtocolCommandOutboxServiceImplTest {
                             null,
                             new MessageSendCommand.FeedTaskCorrelation(42L, 7001L, 3L),
                             null,
-                            null),
+                            null, null),
                     "cmd_feed",
                     500,
                     0L);

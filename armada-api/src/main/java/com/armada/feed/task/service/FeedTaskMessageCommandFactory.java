@@ -70,7 +70,7 @@ public class FeedTaskMessageCommandFactory {
                         null, null, null, null,
                         new MessageSendCommand.FeedTaskCorrelation(
                                 task.getId(), accountRow.getId(), roundNo),
-                        null, null),
+                        null, null, null),
                 commandId,
                 MessageSendCommand.DEFAULT_SEND_INTERVAL_MS,
                 0L);

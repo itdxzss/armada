@@ -76,7 +76,7 @@ class AccountMutualContactH2Test {
         tx = new TransactionTemplate(new DataSourceTransactionManager(ds));
         service = new AccountMutualContactServiceImpl(mapper,
                 org.mapstruct.factory.Mappers.getMapper(
-                        com.armada.account.converter.AccountMutualContactConverter.class));
+                        com.armada.account.converter.AccountMutualContactConverter.class), new AccountMutualGroupPlanner(mapper));
         outbox = mock(ProtocolMutualContactCommandService.class);
         when(outbox.enqueue(any())).thenAnswer(inv -> UUID.randomUUID().toString());
         var identity = mock(CurrentIdentityService.class);

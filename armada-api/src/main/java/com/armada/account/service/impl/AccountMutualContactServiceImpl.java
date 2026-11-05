@@ -9,26 +9,23 @@ import com.armada.account.model.entity.AccountMutualContactItem;
 import com.armada.account.model.entity.AccountMutualContactTask;
 import com.armada.account.model.enums.AccountMutualContactStatus;
 import com.armada.account.model.enums.AccountMutualContactTaskStatus;
-import com.armada.account.model.vo.AccountMutualContactGroupVO;
 import com.armada.account.model.vo.AccountMutualContactItemVO;
 import com.armada.account.model.vo.AccountMutualContactPreviewVO;
 import com.armada.account.model.vo.AccountMutualContactTaskVO;
 import com.armada.account.service.AccountMutualContactAccess;
 import com.armada.account.service.AccountMutualContactPolicy;
+import com.armada.account.service.AccountMutualGroupPlanner;
 import com.armada.account.service.AccountMutualContactService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
 import com.armada.shared.security.AuthPrincipal;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.DigestUtils;
 
 /** 预览冻结范围、任务创建与运营查询，协议动作由后台调度处理。 */
 @Service
@@ -36,9 +33,12 @@ public class AccountMutualContactServiceImpl implements AccountMutualContactServ
     private static final int INSERT_BATCH = 200;
     private final AccountMutualContactMapper mapper;
     private final AccountMutualContactConverter converter;
-    public AccountMutualContactServiceImpl(AccountMutualContactMapper mapper, AccountMutualContactConverter converter) {
+    private final AccountMutualGroupPlanner planner;
+    public AccountMutualContactServiceImpl(AccountMutualContactMapper mapper, AccountMutualContactConverter converter,
+            AccountMutualGroupPlanner planner) {
         this.mapper = mapper;
         this.converter = converter;
+        this.planner = planner;
     }
 
     @Override
@@ -60,7 +60,7 @@ public class AccountMutualContactServiceImpl implements AccountMutualContactServ
                 throw invalid("同一请求不能修改任务参数");
             return toVO(existing);
         }
-        Plan plan = plan(req, p);
+        var plan = plan(req, p);
         AccountMutualContactPolicy.operationCount(plan.left().size(), plan.right().size());
         if (!Objects.equals(plan.preview().previewToken(), req.previewToken()))
             throw new BusinessException(ErrorCode.CONFLICT, "参与账号已变化，请重新预览");
@@ -135,39 +135,10 @@ public class AccountMutualContactServiceImpl implements AccountMutualContactServ
             mapper.setTaskStatus(id, AccountMutualContactTaskStatus.RUNNING.code(), now);
         return count;
     }
-    private Plan plan(AccountMutualContactCreateDTO req, AuthPrincipal p) {
+    private AccountMutualGroupPlanner.Plan plan(AccountMutualContactCreateDTO req, AuthPrincipal p) {
         validate(req, p);
-        var leftGroup = mapper.group(req.leftGroupId());
-        var rightGroup = mapper.group(req.rightGroupId());
-        if (leftGroup == null || rightGroup == null)
-            throw invalid("账号分组不存在或无权访问");
-        var identities = new HashSet<String>();
-        var left = select(req.leftGroupId(), p, identities);
-        var right = select(req.rightGroupId(), p, identities);
-        long leftTotal = mapper.groupCount(req.leftGroupId()), rightTotal = mapper.groupCount(req.rightGroupId());
-        long operationCount = 2L * left.size() * right.size();
-        if (operationCount > AccountMutualContactPolicy.MAX_OPERATIONS)
-            throw invalid("本次定向保存超过 20000 次，请缩小分组");
-        String material = p.tenantId() + ":" + p.userId() + ":" + req.leftGroupId() + ":" + req.rightGroupId() + ":"
-                + req.intervalSeconds() + ":" + left + ":" + right;
-        String token = DigestUtils.md5DigestAsHex(material.getBytes(StandardCharsets.UTF_8));
-        return new Plan(left, right,
-                new AccountMutualContactPreviewVO(
-                        new AccountMutualContactGroupVO(leftGroup.getId(), leftGroup.getName(), leftTotal, left.size(),
-                                leftTotal - left.size()),
-                        new AccountMutualContactGroupVO(rightGroup.getId(), rightGroup.getName(), rightTotal,
-                                right.size(), rightTotal - right.size()),
-                        (int) operationCount / 2, (int) operationCount, token));
-    }
-    private List<AccountMutualContactCandidate> select(Long groupId, AuthPrincipal p, HashSet<String> seen) {
-        var rows = mapper.candidates(groupId, AccountMutualContactPolicy.MAX_OPERATIONS / 2 + 1);
-        if (rows.size() > AccountMutualContactPolicy.MAX_OPERATIONS / 2)
-            throw invalid("单组在线候选过多，请缩小分组");
-        return rows.stream()
-                .filter(AccountMutualContactAccess::eligible)
-                .filter(a -> AccountMutualContactAccess.owns(p, a))
-                .filter(a -> seen.add(a.wsPhone()))
-                .toList();
+        return planner.plan(new AccountMutualGroupPlanner.Request(req.leftGroupId(), req.rightGroupId(),
+                req.intervalSeconds(), AccountMutualContactPolicy.MAX_OPERATIONS), p);
     }
     private static void validate(AccountMutualContactCreateDTO req, AuthPrincipal p) {
         AccountMutualContactAccess.require(p);
@@ -205,6 +176,4 @@ public class AccountMutualContactServiceImpl implements AccountMutualContactServ
     private static BusinessException invalid(String message) {
         return new BusinessException(ErrorCode.VALIDATION, message);
     }
-    private record Plan(List<AccountMutualContactCandidate> left, List<AccountMutualContactCandidate> right,
-            AccountMutualContactPreviewVO preview) {}
 }

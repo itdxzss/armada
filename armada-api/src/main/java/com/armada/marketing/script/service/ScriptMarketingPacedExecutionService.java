@@ -155,7 +155,7 @@ public class ScriptMarketingPacedExecutionService {
                     .orElseThrow(() -> new BusinessException(ErrorCode.CONFLICT, "原绑定账号已离线或不可用"));
             command = new MessageSendCommand(account, new MessageSendCommand.MessageTarget(group.getGroupJid()),
                     reply.apply(content.payload(step)), new MessageSendCommand.MessageCorrelation(task.getTenantId(), SOURCE,
-                    null, null, null, null, null, null, row.getId()), row.getCommandId(),
+                    null, null, null, null, null, null, row.getId(), null), row.getCommandId(),
                     MessageSendCommand.DEFAULT_SEND_INTERVAL_MS, 0L);
         } catch (BusinessException ex) {
             long failedAt = Math.max(now, System.currentTimeMillis());

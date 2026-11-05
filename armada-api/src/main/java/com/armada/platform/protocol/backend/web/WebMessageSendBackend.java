@@ -58,6 +58,7 @@ public final class WebMessageSendBackend implements MessageSendBackend {
         MessageSendCommand.ContactTaskCorrelation contactTask = correlation.contactTask();
         MessageSendCommand.FeedTaskCorrelation feedTask = correlation.feedTask();
         MessageSendCommand.HyperlinkCorrelation hyperlink = correlation.hyperlink();
+        MessageSendCommand.AccountMutualChatCorrelation mutualChat = correlation.mutualChat();
         MessageSendCommand.MessageContent content = command.payload().content();
         WebMessagePayload payload = new WebMessagePayload(
                 correlation.tenantId(),
@@ -95,7 +96,9 @@ public final class WebMessageSendBackend implements MessageSendBackend {
                 feedTask == null ? null : feedTask.taskId(),
                 feedTask == null ? null : feedTask.taskAccountId(),
                 hyperlink == null ? null : hyperlink.taskId(),
-                hyperlink == null ? null : hyperlink.recipientId(), command.payload().replyTo());
+                hyperlink == null ? null : hyperlink.recipientId(), command.payload().replyTo(),
+                mutualChat == null ? null : mutualChat.taskId(),
+                mutualChat == null ? null : mutualChat.itemId());
         return new ProtocolMessageOutboxCommand(
                 command,
                 ProtocolBackend.WEB,
@@ -167,7 +170,9 @@ public final class WebMessageSendBackend implements MessageSendBackend {
             Long feedTaskAccountId,
             Long hyperlinkTaskId,
             Long hyperlinkRecipientId,
-            com.armada.platform.protocol.model.command.MessageReply replyTo
+            com.armada.platform.protocol.model.command.MessageReply replyTo,
+            Long mutualChatTaskId,
+            Long mutualChatItemId
     ) {
     }
 

@@ -223,6 +223,7 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
         MessageSendCommand.ContactTaskCorrelation contactTask = correlation.contactTask();
         MessageSendCommand.FeedTaskCorrelation feedTask = correlation.feedTask();
         MessageSendCommand.HyperlinkCorrelation hyperlink = correlation.hyperlink();
+        MessageSendCommand.AccountMutualChatCorrelation mutualChat = correlation.mutualChat();
         MessageSendCommand.MessageContent content = command.payload().content();
         AndroidMessagePayload payload = new AndroidMessagePayload(
                 correlation.tenantId(),
@@ -262,7 +263,9 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
                 feedTask == null ? null : feedTask.taskId(),
                 feedTask == null ? null : feedTask.taskAccountId(),
                 hyperlink == null ? null : hyperlink.taskId(),
-                hyperlink == null ? null : hyperlink.recipientId(), command.payload().replyTo());
+                hyperlink == null ? null : hyperlink.recipientId(), command.payload().replyTo(),
+                mutualChat == null ? null : mutualChat.taskId(),
+                mutualChat == null ? null : mutualChat.itemId());
         return new ProtocolMessageOutboxCommand(
                 command,
                 ProtocolBackend.ANDROID,
@@ -354,7 +357,9 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
             Long feedTaskAccountId,
             Long hyperlinkTaskId,
             Long hyperlinkRecipientId,
-            com.armada.platform.protocol.model.command.MessageReply replyTo
+            com.armada.platform.protocol.model.command.MessageReply replyTo,
+            Long mutualChatTaskId,
+            Long mutualChatItemId
     ) {
     }
 

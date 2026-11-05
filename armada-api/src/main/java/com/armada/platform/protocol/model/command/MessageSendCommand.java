@@ -155,6 +155,7 @@ public record MessageSendCommand(
      * @param contactTask 通讯录营销关联
      * @param feedTask 动态发布任务账号关联
      * @param hyperlink 超链任务唯一 recipient 关联
+     * @param mutualChat 账号分组互聊任务及方向明细
      * @param scriptRecordId 剧本单项发送事实 ID，仅 Armada outbox 使用
      */
     public record MessageCorrelation(
@@ -166,13 +167,14 @@ public record MessageSendCommand(
             ContactTaskCorrelation contactTask,
             FeedTaskCorrelation feedTask,
             HyperlinkCorrelation hyperlink,
-            Long scriptRecordId
+            Long scriptRecordId,
+            AccountMutualChatCorrelation mutualChat
     ) {
         /** 上游 6 参构造兼容：不触碰上游既有调用点，contactTask 默认为空。 */
         public MessageCorrelation(Long tenantId, String source, MarketingCorrelation marketing,
                 GroupCreationCorrelation groupCreation, HistoricalGroupCorrelation historicalGroup,
                 HyperlinkCorrelation hyperlink) {
-            this(tenantId, source, marketing, groupCreation, historicalGroup, null, null, hyperlink, null);
+            this(tenantId, source, marketing, groupCreation, historicalGroup, null, null, hyperlink, null, null);
         }
 
         /** 存量群营销 Java 构造兼容，contactTask 与 hyperlink 默认为空。 */
@@ -180,13 +182,13 @@ public record MessageSendCommand(
                 GroupCreationCorrelation groupCreation, HistoricalGroupCorrelation historicalGroup,
                 ContactTaskCorrelation contactTask, HyperlinkCorrelation hyperlink) {
             this(tenantId, source, marketing, groupCreation, historicalGroup,
-                    contactTask, null, hyperlink, null);
+                    contactTask, null, hyperlink, null, null);
         }
 
         public MessageCorrelation(Long tenantId, String source, MarketingCorrelation marketing,
                 GroupCreationCorrelation groupCreation, HistoricalGroupCorrelation historicalGroup) {
             this(tenantId, source, marketing, groupCreation, historicalGroup,
-                    null, null, null, null);
+                    null, null, null, null, null);
         }
     }
 
@@ -242,6 +244,9 @@ public record MessageSendCommand(
     /** WhatsApp Status 动态发布任务关联。 */
     public record FeedTaskCorrelation(Long taskId, Long taskAccountId, Long roundNo) {
     }
+
+    /** 账号分组互聊的任务与单方向消息事实。 */
+    public record AccountMutualChatCorrelation(Long taskId, Long itemId) {}
 
     /** 超链任务唯一发送事实关联，不包含 attempt。 */
     public record HyperlinkCorrelation(Long taskId, Long recipientId) {

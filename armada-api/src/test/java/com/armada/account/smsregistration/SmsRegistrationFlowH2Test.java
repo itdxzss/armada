@@ -111,7 +111,6 @@ class SmsRegistrationFlowH2Test {
         }
         SmsRegistrationMigration.apply(dataSource);
         var tenant = new GoRegistrationProperties.Tenant();
-        tenant.setToken("token");
         tenant.setProfileId(42L);
         tenant.setBusinessProfileId(43L);
         goProperties.setEnabled(true);

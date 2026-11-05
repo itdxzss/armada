@@ -49,7 +49,7 @@ mvn -o test -Dtest='com.armada.account.**.*Test,com.armada.resource.**.*Test,com
   GroupFolderMapper.xml 未被本次改动，非本次引入
 ```
 
-新增测试：`GoRegistrationClientTest` 18、`SmsRegistrationFlowH2Test` 19（真实 H2 Mapper + 真实订单/办理服务 + 真实 worker，替身掉 Go/号商/代理池）、`SmsRegistrationMapperH2Test` 3、`IpProxyRegistrationMigrationH2Test` 2、`GoRegistrationConfigurationTest` 2（证明 yml 里记录的环境变量名真的能绑定，含每租户 TOKEN/PROFILEID）、`IpProxyMapperH2Test` +1、`IpProxyServiceImplTest` +3、`SmsActivationServiceTest` +2。
+新增测试：`GoRegistrationClientTest` 18、`SmsRegistrationFlowH2Test` 19（真实 H2 Mapper + 真实订单/办理服务 + 真实 worker，替身掉 Go/号商/代理池）、`SmsRegistrationMapperH2Test` 3、`IpProxyRegistrationMigrationH2Test` 2、`GoRegistrationConfigurationTest` 2（证明 yml 里记录的环境变量名真的能绑定，原始版本包含租户令牌；当前无令牌合同见 2026-11-05-remove-registration-token.md）、`IpProxyMapperH2Test` +1、`IpProxyServiceImplTest` +3、`SmsActivationServiceTest` +2。
 
 “改坏”抽查（改完已还原）：让发码键每轮变化 → 流程测试 2 个失败；让占用检查失效 → 占用测试 2 个失败。
 
@@ -87,7 +87,7 @@ JAVA_HOME=/Users/daishuaishuai/Library/Java/JavaVirtualMachines/temurin-21.0.12.
 - `vite build` 未跑。
 
 ## 部署
-- 未部署。上线顺序：Go 网络层与 `proxy` 字段就绪 → 配置 `SMS_REGISTRATION_ENABLED/GO_BASE_URL` 与各租户 `ARMADA_ACCOUNT_SMSREGISTRATION_TENANTS_<租户ID>_TOKEN/_PROFILEID` → 先单号实测再放量。回滚：关 `SMS_REGISTRATION_ENABLED`，停止新办理与自动推进，已有办理记录与订单保留，进行中的订单转人工用旧按钮处理。
+- 未部署。上线顺序：Go 网络层与 `proxy` 字段就绪 → 配置 `SMS_REGISTRATION_ENABLED/GO_BASE_URL` 与各租户 `ARMADA_ACCOUNT_SMSREGISTRATION_TENANTS_<租户ID>_PROFILEID`（商业版使用 `_BUSINESSPROFILEID`） → 先单号实测再放量。回滚：关 `SMS_REGISTRATION_ENABLED`，停止新办理与自动推进，已有办理记录与订单保留，进行中的订单转人工用旧按钮处理。
 
 ## 遗留 / 跟进
 - 注册成功后的导入、上线（本次不实现，注册结束即归还代理）。

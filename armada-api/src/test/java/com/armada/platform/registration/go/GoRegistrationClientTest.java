@@ -28,6 +28,7 @@ class GoRegistrationClientTest {
     private final AtomicReference<String> method = new AtomicReference<>();
     private final AtomicReference<String> path = new AtomicReference<>();
     private final AtomicReference<String> authorization = new AtomicReference<>();
+    private final AtomicReference<String> tenantHeader = new AtomicReference<>();
     private final AtomicReference<String> idempotencyKey = new AtomicReference<>();
     private final AtomicReference<String> requestBody = new AtomicReference<>();
     private volatile int status = 200;
@@ -40,6 +41,7 @@ class GoRegistrationClientTest {
             method.set(exchange.getRequestMethod());
             path.set(exchange.getRequestURI().getPath());
             authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            tenantHeader.set(exchange.getRequestHeaders().getFirst("X-Tenant-Id"));
             idempotencyKey.set(exchange.getRequestHeaders().getFirst("Idempotency-Key"));
             requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             byte[] bytes = responseBody.getBytes(StandardCharsets.UTF_8);
@@ -51,7 +53,6 @@ class GoRegistrationClientTest {
         });
         server.start();
         var tenant = new GoRegistrationProperties.Tenant();
-        tenant.setToken("tenant-token");
         tenant.setProfileId(42L);
         properties.setEnabled(true);
         properties.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
@@ -65,7 +66,7 @@ class GoRegistrationClientTest {
     }
 
     @Test
-    void requestCodeSendsSnakeCaseBodyBearerAndKeyAndParsesWaitingCode() throws Exception {
+    void requestCodeSendsTenantWithoutBearerAndParsesWaitingCode() throws Exception {
         responseBody = envelope(0, "WAITING_CODE", 3, false, "");
 
         var response = client.requestCode(TENANT, "sms-go-v1:7:9:send", new GoRegistrationRequest("+12025550123", 42L, "socks5://u:p@h:1080", false));
@@ -76,7 +77,8 @@ class GoRegistrationClientTest {
         assertThat(response.snapshot().transactionId()).isEqualTo("2de772cb-f034-4cc2-8a0b-fbe218bcc01b");
         assertThat(method.get()).isEqualTo("POST");
         assertThat(path.get()).isEqualTo("/ws/v1/registrations/code-requests");
-        assertThat(authorization.get()).isEqualTo("Bearer tenant-token");
+        assertThat(authorization.get()).isNull();
+        assertThat(tenantHeader.get()).isEqualTo("7");
         assertThat(idempotencyKey.get()).isEqualTo("sms-go-v1:7:9:send");
         JsonNode body = JSON.readTree(requestBody.get());
         assertThat(body.get("phone").asText()).isEqualTo("+12025550123");
@@ -106,6 +108,8 @@ class GoRegistrationClientTest {
 
         assertThat(response.kind()).isEqualTo(GoRegistrationResponse.Kind.DONE);
         assertThat(response.snapshot().resultAvailable()).isTrue();
+        assertThat(authorization.get()).isNull();
+        assertThat(tenantHeader.get()).isEqualTo("7");
         assertThat(path.get()).isEqualTo("/ws/v1/registrations/2de772cb-f034-4cc2-8a0b-fbe218bcc01b/code-verifications");
         JsonNode body = JSON.readTree(requestBody.get());
         assertThat(body.get("code").isTextual()).isTrue();
@@ -120,6 +124,8 @@ class GoRegistrationClientTest {
         client.status(TENANT, "2de772cb-f034-4cc2-8a0b-fbe218bcc01b");
 
         assertThat(method.get()).isEqualTo("GET");
+        assertThat(authorization.get()).isNull();
+        assertThat(tenantHeader.get()).isEqualTo("7");
         assertThat(idempotencyKey.get()).isNull();
         assertThat(requestBody.get()).isEmpty();
     }
@@ -169,10 +175,28 @@ class GoRegistrationClientTest {
 
     @Test
     void refusesWhenDisabledTenantUnknownOrTransactionIdUnsafe() {
+        for (Long tenantId : new Long[]{null, 0L, -1L}) {
+            assertThatThrownBy(() -> client.status(tenantId, "abc")).isInstanceOf(BusinessException.class);
+        }
         assertThatThrownBy(() -> client.requestCode(99L, "k", new GoRegistrationRequest("+1", 42L, "p", false))).isInstanceOf(BusinessException.class);
         assertThatThrownBy(() -> client.status(TENANT, "../admin")).isInstanceOf(BusinessException.class);
         properties.setEnabled(false);
         assertThatThrownBy(() -> client.status(TENANT, "abc")).isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    void eachCallUsesItsPersistedTenantWithoutAnyCredential() {
+        var other = new GoRegistrationProperties.Tenant();
+        other.setProfileId(84L);
+        properties.getTenants().put(8L, other);
+        responseBody = envelope(0, "WAITING_CODE", 3, false, "");
+
+        client.status(8L, "2de772cb-f034-4cc2-8a0b-fbe218bcc01b");
+        assertThat(tenantHeader.get()).isEqualTo("8");
+        assertThat(authorization.get()).isNull();
+        client.status(TENANT, "2de772cb-f034-4cc2-8a0b-fbe218bcc01b");
+        assertThat(tenantHeader.get()).isEqualTo("7");
+        assertThat(authorization.get()).isNull();
     }
 
     @Test

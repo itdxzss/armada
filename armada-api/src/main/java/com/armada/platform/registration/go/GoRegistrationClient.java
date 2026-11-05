@@ -8,7 +8,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.util.Optional;
 import java.util.regex.Pattern;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -29,6 +28,8 @@ public final class GoRegistrationClient {
     private static final String BASE_PATH = "/ws/v1/registrations";
     /** 幂等键请求头，Go 要求 POST 必带。 */
     private static final String IDEMPOTENCY_HEADER = "Idempotency-Key";
+    /** Armada 确认的租户归属；Go 注册接口必须限制为内部服务访问。 */
+    private static final String TENANT_HEADER = "X-Tenant-Id";
     /** 响应体上限，防止异常服务端耗尽内存；合法响应只有几百字节。 */
     private static final int MAX_RESPONSE_BYTES = 65_536;
     /** Go 事务 ID 是 UUID；放进路径前校验，防止路径注入。 */
@@ -61,7 +62,7 @@ public final class GoRegistrationClient {
 
     /**
      * 首次申请验证码（POST code-requests）。
-     * @param tenantId 租户，决定使用哪个 Go 凭据
+     * @param tenantId 租户，必须来自登录上下文或已持久化任务
      * @param idempotencyKey 稳定幂等键，重放必须与首次完全相同
      * @param request 开始时冻结的号码、配置、代理与账号类型，禁止写日志
      * @return 分类后的结果
@@ -97,20 +98,20 @@ public final class GoRegistrationClient {
      */
     public GoRegistrationResponse status(Long tenantId, String transactionId) {
         requireTransactionId(transactionId);
-        String bearer = bearer(tenantId);
+        String tenantHeader = requireTenant(tenantId);
         try {
             return restClient.get().uri(BASE_PATH + "/" + transactionId)
-                    .header(HttpHeaders.AUTHORIZATION, bearer).exchange(this::read);
+                    .header(TENANT_HEADER, tenantHeader).exchange(this::read);
         } catch (RestClientException exception) {
             return GoRegistrationResponse.of(GoRegistrationResponse.Kind.NO_RESPONSE);
         }
     }
 
     private GoRegistrationResponse post(Long tenantId, String path, String idempotencyKey, Object body) {
-        String bearer = bearer(tenantId);
+        String tenantHeader = requireTenant(tenantId);
         try {
             return restClient.post().uri(path)
-                    .header(HttpHeaders.AUTHORIZATION, bearer)
+                    .header(TENANT_HEADER, tenantHeader)
                     .header(IDEMPOTENCY_HEADER, idempotencyKey)
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(body)
@@ -121,13 +122,14 @@ public final class GoRegistrationClient {
         }
     }
 
-    private String bearer(Long tenantId) {
+    private String requireTenant(Long tenantId) {
         if (!properties.isEnabled()) {
             throw new BusinessException(ErrorCode.SMS_PROVIDER_UNAVAILABLE, "Go 注册未启用");
         }
-        var tenant = properties.tenant(tenantId).orElseThrow(
-                () -> new BusinessException(ErrorCode.SMS_PROVIDER_UNAVAILABLE, "当前租户未配置 Go 注册"));
-        return "Bearer " + tenant.getToken();
+        if (properties.tenant(tenantId).isEmpty()) {
+            throw new BusinessException(ErrorCode.SMS_PROVIDER_UNAVAILABLE, "当前租户未配置 Go 注册");
+        }
+        return tenantId.toString();
     }
 
     private static void requireTransactionId(String transactionId) {

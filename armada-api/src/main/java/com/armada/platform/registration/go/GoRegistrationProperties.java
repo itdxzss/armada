@@ -26,22 +26,16 @@ public final class GoRegistrationProperties implements InitializingBean {
     private Duration connectTimeout = Duration.ofSeconds(5);
     /** 响应读取上限，必须大于 Go 单次外部操作的 20 秒期限。 */
     private Duration readTimeout = Duration.ofSeconds(25);
-    /** 按租户配置的 Go 归属：不同租户不得共用同一个 Go token。 */
+    /** 按租户维护个人版、商业版设备配置；租户上下文随内部 HTTP 请求传递。 */
     private Map<Long, Tenant> tenants = new LinkedHashMap<>();
 
-    /** 单个租户的 Go 调用凭据与注册配置。 */
+    /** 单个租户的注册设备配置。 */
     public static final class Tenant {
-        /** Go 服务端映射到该租户的 Bearer 凭据，仅由服务端环境注入，禁止进日志。 */
-        private String token = "";
         /** 该租户个人版 Go 注册配置 ID；0 表示未开放个人注册。 */
         private long profileId;
         /** 商业版独立配置 ID；0 表示该租户未开放商业注册。 */
         private long businessProfileId;
 
-        /** @return Bearer 凭据 */
-        public String getToken() { return token; }
-        /** @param token Bearer 凭据 */
-        public void setToken(String token) { this.token = token; }
         /** @return Go 注册配置 ID */
         public long getProfileId() { return profileId; }
         /** @param profileId Go 注册配置 ID */
@@ -53,15 +47,13 @@ public final class GoRegistrationProperties implements InitializingBean {
         public void setBusinessProfileId(long businessProfileId) { this.businessProfileId = businessProfileId; }
 
         private boolean valid() {
-            return token != null && !token.isBlank()
-                    && token.chars().noneMatch(c -> Character.isWhitespace(c) || Character.isISOControl(c))
-                    && profileId >= 0 && businessProfileId >= 0
+            return profileId >= 0 && businessProfileId >= 0
                     && (profileId > 0 || businessProfileId > 0)
                     && (profileId == 0 || profileId != businessProfileId);
         }
     }
 
-    /** 启动时校验；错误信息不包含任何凭据值。 */
+    /** 启动时校验目标地址、租户 ID 和设备配置。 */
     @Override
     public void afterPropertiesSet() {
         if (!validTimeout(connectTimeout) || !validTimeout(readTimeout)) {
@@ -73,8 +65,10 @@ public final class GoRegistrationProperties implements InitializingBean {
         if (!enabled) {
             return;
         }
-        if (!validBaseUrl() || tenants.isEmpty() || !tenants.values().stream().allMatch(Tenant::valid)) {
-            throw new IllegalStateException("Go 注册启用时必须配置有效的服务地址，以及每个租户的凭据与配置 ID");
+        if (!validBaseUrl() || tenants == null || tenants.isEmpty()
+                || !tenants.entrySet().stream().allMatch(entry -> entry.getKey() != null && entry.getKey() > 0
+                        && entry.getValue() != null && entry.getValue().valid())) {
+            throw new IllegalStateException("Go 注册启用时必须配置有效的服务地址、正整数租户 ID 及设备配置 ID");
         }
     }
 
@@ -93,6 +87,9 @@ public final class GoRegistrationProperties implements InitializingBean {
 
     /** @return 指定租户的 Go 配置；未配置时为空，表示该租户不能使用自动注册 */
     public Optional<Tenant> tenant(Long tenantId) {
+        if (tenantId == null || tenantId <= 0 || tenants == null) {
+            return Optional.empty();
+        }
         return Optional.ofNullable(tenants.get(tenantId));
     }
 

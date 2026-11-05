@@ -17,12 +17,11 @@ class GoRegistrationConfigurationTest {
             .withBean(ObjectMapper.class, ObjectMapper::new);
 
     @Test
-    void tenantCredentialsBindFromTheDocumentedEnvironmentVariables() {
+    void tenantProfilesBindWithoutCredentials() {
         runner.withInitializer(context -> TestPropertyValues.of(
                 "ARMADA_ACCOUNT_SMSREGISTRATION_ENABLED=true",
                 "ARMADA_ACCOUNT_SMSREGISTRATION_BASEURL=http://go.internal:8080",
                 "ARMADA_ACCOUNT_SMSREGISTRATION_CONCURRENCY=16",
-                "ARMADA_ACCOUNT_SMSREGISTRATION_TENANTS_7_TOKEN=secret-token",
                 "ARMADA_ACCOUNT_SMSREGISTRATION_TENANTS_7_PROFILEID=42",
                 "ARMADA_ACCOUNT_SMSREGISTRATION_TENANTS_7_BUSINESSPROFILEID=43")
                 .applyTo(context.getEnvironment(), TestPropertyValues.Type.SYSTEM_ENVIRONMENT))
@@ -34,7 +33,6 @@ class GoRegistrationConfigurationTest {
                     assertThat(properties.tenant(7L)).isPresent();
                     assertThat(properties.tenant(7L).orElseThrow().getProfileId()).isEqualTo(42L);
                     assertThat(properties.tenant(7L).orElseThrow().getBusinessProfileId()).isEqualTo(43L);
-                    assertThat(properties.tenant(7L).orElseThrow().getToken()).isEqualTo("secret-token");
                     // 没配置的租户不能使用自动注册。
                     assertThat(properties.tenant(8L)).isEmpty();
                 });
@@ -44,7 +42,6 @@ class GoRegistrationConfigurationTest {
     void businessOnlyTenantIsValidButReusingTheSameProfileForBothTypesFails() {
         var configured = runner.withPropertyValues("armada.account.sms-registration.enabled=true",
                 "armada.account.sms-registration.base-url=http://go.internal:8080",
-                "armada.account.sms-registration.tenants[7].token=synthetic-token",
                 "armada.account.sms-registration.tenants[7].business-profile-id=43");
         configured.run(context -> assertThat(context).hasNotFailed());
         configured.withPropertyValues("armada.account.sms-registration.tenants[7].profile-id=43")
@@ -54,7 +51,7 @@ class GoRegistrationConfigurationTest {
     }
 
     @Test
-    void defaultsKeepTheFeatureOffAndEnabledWithoutCredentialsFailsStartup() {
+    void defaultsKeepTheFeatureOffAndEnabledWithoutProfilesFailsStartup() {
         runner.run(context -> {
             assertThat(context).hasNotFailed();
             assertThat(context.getBean(GoRegistrationProperties.class).isEnabled()).isFalse();

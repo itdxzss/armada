@@ -121,6 +121,17 @@ public final class GrizzlySmsClient {
     }
 
     /**
+     * 一次查询某服务在所有国家的报价快照，用于国家下拉展示库存；不预留号码。
+     * @param service 服务目录代码
+     * @return 各国家的价格和库存，空集合表示没有报价
+     * @throws BusinessException 参数非法时抛出，供应商错误以子类 GrizzlySmsException 表达
+     */
+    public List<GrizzlyPrice> getServicePrices(String service) {
+        requireMatch(service, SERVICE_CODE, "接码服务代码无效");
+        return parser.prices(request(Action.PRICES, Map.of("service", service)));
+    }
+
+    /**
      * 查询单个服务、国家的各价格档位及供应商筛选信息。
      * <p>库存取自 getPricesV2，供应商列表取自随后查询的 getPricesV3；两次查询不是原子快照，
      * 供应商总库存不当作档位库存。查询结果不预留号码，也不承诺后续价格或库存。</p>

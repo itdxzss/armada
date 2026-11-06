@@ -36,7 +36,7 @@ public class AccountRegistrationTask {
     private String requestId;
     /** 创建时确认的 WhatsApp 服务代码。 */
     private String serviceCode;
-    /** 供应商美国目录ID。 */
+    /** 供应商国家目录ID。 */
     private String countryId;
     /** 固定采购单价，不隐含币种。 */
     private BigDecimal unitPrice;
@@ -72,9 +72,9 @@ public class AccountRegistrationTask {
     public String getServiceCode() { return serviceCode; }
     /** @param value 创建时确认的 WhatsApp 服务代码 */
     public void setServiceCode(String value) { serviceCode = value; }
-    /** @return 供应商美国目录ID */
+    /** @return 供应商国家目录ID */
     public String getCountryId() { return countryId; }
-    /** @param value 供应商美国目录ID */
+    /** @param value 供应商国家目录ID */
     public void setCountryId(String value) { countryId = value; }
     /** @return 固定采购单价，不隐含币种 */
     public BigDecimal getUnitPrice() { return unitPrice; }

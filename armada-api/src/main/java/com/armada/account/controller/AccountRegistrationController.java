@@ -29,10 +29,10 @@ public class AccountRegistrationController {
     private final AccountRegistrationService service;
     /** 装配业务服务。 */
     public AccountRegistrationController(AccountRegistrationService service) { this.service = service; }
-    /** 获取真实WhatsApp美国目录与门禁。 */
+    /** 获取真实WhatsApp国家目录与门禁。 */
     @GetMapping("/catalog")
     public ApiResponse<AccountRegistrationCatalogVO> catalog() { return ApiResponse.ok(service.catalog()); }
-    /** 查询指定美国目录项的价档，不预留库存。 */
+    /** 查询指定国家目录项的价档，不预留库存。 */
     @GetMapping("/price-tiers")
     public ApiResponse<List<GrizzlyPriceTier>> tiers(@RequestParam String countryId) {
         return ApiResponse.ok(service.priceTiers(countryId));

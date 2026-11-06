@@ -122,7 +122,7 @@ class SmsActivationServiceTest {
                 .hasMessageContaining("GRIZZLY_API_KEY_MISSING");
         properties.setApiKey("test-only-key");
         assertThatThrownBy(() -> service.create(new SmsActivationCreateDTO("999", BigDecimal.ONE, null), 1L))
-                .hasMessageContaining("美国目录");
+                .hasMessageContaining("当前目录");
         assertThatThrownBy(() -> service.create(new SmsActivationCreateDTO("187", BigDecimal.ZERO, null), 1L))
                 .hasMessageContaining("参数无效");
         verify(grizzly, never()).acquireNumber(any());

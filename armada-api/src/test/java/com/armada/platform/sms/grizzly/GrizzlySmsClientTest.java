@@ -467,6 +467,22 @@ class GrizzlySmsClientTest {
         server.verify();
     }
 
+    @Test
+    void servicePricesAreQueriedWithoutCountryAndParsedPerCountry() {
+        server.expect(queryParam("action", "getPrices"))
+                .andExpect(queryParam("service", "wa"))
+                .andExpect(request -> org.assertj.core.api.Assertions
+                        .assertThat(request.getURI().getQuery()).doesNotContain("country="))
+                .andRespond(withSuccess("""
+                        {"12":{"wa":{"cost":0.2,"count":10}},"187":{"wa":{"cost":0.15,"count":125310}}}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(client.getServicePrices("wa")).extracting("country", "count")
+                .containsExactlyInAnyOrder(org.assertj.core.groups.Tuple.tuple("12", 10L),
+                        org.assertj.core.groups.Tuple.tuple("187", 125310L));
+        server.verify();
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"STATUS_OK:", "STATUS_WAIT_RETRY:", "STATUS_UNKNOWN:001234", "{\"code\":\"001234\"}"})
     void invalidStatusNeverInventsACodeOrReturnsRawProviderError(String response) {

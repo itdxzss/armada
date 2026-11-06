@@ -49,7 +49,7 @@ public class SmsActivationServiceImpl implements SmsActivationService {
     private final SmsActivationMapper mapper;
     /** 记录到响应的转换。 */
     private final SmsActivationConverter converter;
-    /** 复用新号注册的 WhatsApp 美国目录。 */
+    /** 复用新号注册的 WhatsApp 国家目录。 */
     private final AccountRegistrationService registrations;
     /** 接码平台客户端。 */
     private final GrizzlySmsClient grizzly;
@@ -96,7 +96,7 @@ public class SmsActivationServiceImpl implements SmsActivationService {
         if (!disabled.isEmpty()) { throw new BusinessException(ErrorCode.VALIDATION, "手动接码未开放：" + disabled); }
         AccountRegistrationCatalogVO catalog = registrations.catalog();
         if (catalog.countries().stream().noneMatch(country -> country.id().equals(request.countryId()))) {
-            throw new BusinessException(ErrorCode.VALIDATION, "请选择当前美国目录中的国家渠道");
+            throw new BusinessException(ErrorCode.VALIDATION, "请选择当前目录中的国家渠道");
         }
         GrizzlyActivation activation = acquire(catalog.serviceCode(), request);
         SmsActivation row = newRow(activation, catalog.serviceCode(), request.countryId(), operatorId);

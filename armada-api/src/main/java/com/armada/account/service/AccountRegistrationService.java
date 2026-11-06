@@ -11,9 +11,9 @@ import java.util.List;
 
 /** 租户接码注册任务入口；创建只持久化采购意图，后台执行真实操作。 */
 public interface AccountRegistrationService {
-    /** 返回真实WhatsApp/美国目录及配置与远端能力门禁。 */
+    /** 返回真实WhatsApp国家目录及配置与远端能力门禁。 */
     AccountRegistrationCatalogVO catalog();
-    /** 查询美国目录项各价格档位，库存仅为快照。 */
+    /** 查询国家目录项各价格档位，库存仅为快照。 */
     List<GrizzlyPriceTier> priceTiers(String countryId);
     /** 固定次数下单，同租户requestId幂等，参数冲突拒绝。 */
     AccountRegistrationDetailVO create(AccountRegistrationCreateDTO request);

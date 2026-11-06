@@ -13,16 +13,20 @@ import com.armada.account.service.AccountRegistrationService;
 import com.armada.platform.registration.cobalt.CobaltRegistrationClient;
 import com.armada.platform.sms.grizzly.GrizzlySmsClient;
 import com.armada.platform.sms.grizzly.GrizzlySmsProperties;
-import com.armada.platform.sms.grizzly.model.GrizzlyCountry;
+import com.armada.platform.sms.grizzly.model.GrizzlyPrice;
 import com.armada.platform.sms.grizzly.model.GrizzlyPriceTier;
 import com.armada.platform.sms.grizzly.model.GrizzlyService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
 import com.armada.shared.tenant.TenantContext;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.core.env.Environment;
@@ -32,6 +36,14 @@ import org.springframework.stereotype.Service;
 /** 目录/报价校验与租户注册任务查询，不在HTTP请求中购买号码。 */
 @Service
 public class AccountRegistrationServiceImpl implements AccountRegistrationService {
+    private static final Logger LOG = LoggerFactory.getLogger(AccountRegistrationServiceImpl.class);
+    /** 国家库存报价缓存时长。 */
+    private static final long QUOTE_TTL_MILLIS = 30_000L;
+    /** 有库存的在前并按库存倒序，无报价的排最后。 */
+    private static final Comparator<AccountRegistrationCatalogVO.Country> STOCK_DESC = Comparator
+            .comparing((AccountRegistrationCatalogVO.Country c) -> c.stock() == null ? -1L : c.stock()).reversed();
+    /** 最近一次国家报价。 */
+    private volatile QuoteCache quoteCache;
     /** 单任务最大固定采购次数。 */
     private static final int MAX_QUANTITY = 100;
     /** 数据访问。 */
@@ -73,9 +85,13 @@ public class AccountRegistrationServiceImpl implements AccountRegistrationServic
             return new AccountRegistrationCatalogVO("", "WhatsApp", List.of(), false, "GRIZZLY_API_KEY_MISSING");
         }
         GrizzlyService service = whatsapp();
-        var countries = grizzly.getCountries().stream().filter(AccountRegistrationServiceImpl::isUnitedStates)
-                .map(country -> new AccountRegistrationCatalogVO.Country(country.id(),
-                        country.chineseName().orElse(country.englishName()))).toList();
+        Map<String, GrizzlyPrice> quotes = quotes(service.code());
+        var countries = grizzly.getCountries().stream().map(country -> {
+            GrizzlyPrice quote = quotes.get(country.id());
+            return new AccountRegistrationCatalogVO.Country(country.id(),
+                    country.chineseName().orElse(country.englishName()),
+                    quote == null ? null : quote.count(), quote == null ? null : quote.cost());
+        }).sorted(STOCK_DESC).toList();
         String disabled = orderingDisabledReason();
         return new AccountRegistrationCatalogVO(service.code(), service.name(), countries,
                 disabled.isEmpty(), disabled);
@@ -164,11 +180,11 @@ public class AccountRegistrationServiceImpl implements AccountRegistrationServic
         return "";
     }
 
-    /** 复用实时 WhatsApp/美国目录，不允许配置任意供应商服务。 */
+    /** 复用实时 WhatsApp 国家目录，不允许配置任意供应商服务。 */
     public String deviceServiceCode(String countryId) {
         requireTenant();
-        if (grizzly.getCountries().stream().noneMatch(country -> country.id().equals(countryId) && isUnitedStates(country))) {
-            throw new BusinessException(ErrorCode.VALIDATION, "注册许可渠道不在当前美国目录中");
+        if (grizzly.getCountries().stream().noneMatch(country -> country.id().equals(countryId))) {
+            throw new BusinessException(ErrorCode.VALIDATION, "注册许可渠道不在当前国家目录中");
         }
         return whatsapp().code();
     }
@@ -202,15 +218,31 @@ public class AccountRegistrationServiceImpl implements AccountRegistrationServic
         if (!available) { throw new BusinessException(ErrorCode.VALIDATION, "所选商家、价格或库存已变化，请刷新报价"); }
     }
 
-    private static boolean isUnitedStates(GrizzlyCountry country) {
-        String name = country.englishName().strip().toUpperCase(Locale.ROOT);
-        return name.equals("USA") || name.startsWith("USA ") || name.startsWith("USA(")
-                || name.startsWith("UNITED STATES") || country.chineseName().orElse("").startsWith("美国");
+    /** 各国家报价缓存；失败时降级为无库存，不影响取号与目录校验。 */
+    private Map<String, GrizzlyPrice> quotes(String serviceCode) {
+        QuoteCache cached = quoteCache;
+        long now = System.currentTimeMillis();
+        if (cached != null && cached.service().equals(serviceCode) && now - cached.loadedAt() < QUOTE_TTL_MILLIS) {
+            return cached.byCountry();
+        }
+        try {
+            Map<String, GrizzlyPrice> byCountry = new HashMap<>();
+            for (GrizzlyPrice price : grizzly.getServicePrices(serviceCode)) {
+                if (serviceCode.equals(price.service())) { byCountry.putIfAbsent(price.country(), price); }
+            }
+            quoteCache = new QuoteCache(serviceCode, now, Map.copyOf(byCountry));
+            return quoteCache.byCountry();
+        } catch (RuntimeException exception) {
+            LOG.warn("registration catalog quotes unavailable: {}", exception.getClass().getSimpleName());
+            return cached != null && cached.service().equals(serviceCode) ? cached.byCountry() : Map.of();
+        }
     }
+
+    private record QuoteCache(String service, long loadedAt, Map<String, GrizzlyPrice> byCountry) { }
 
     private static void requireCountry(AccountRegistrationCatalogVO catalog, String id) {
         if (id == null || catalog.countries().stream().noneMatch(country -> country.id().equals(id))) {
-            throw new BusinessException(ErrorCode.VALIDATION, "请选择当前美国目录中的国家渠道");
+            throw new BusinessException(ErrorCode.VALIDATION, "请选择当前目录中的国家渠道");
         }
     }
 

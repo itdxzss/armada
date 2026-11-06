@@ -10,6 +10,7 @@ import com.armada.platform.protocol.port.GroupApprovalPort;
 
 import com.armada.platform.kafka.config.ProtocolAndroidCommandProperties;
 import com.armada.platform.kafka.config.ProtocolMasterCommandProperties;
+import com.armada.platform.protocol.backend.android.AndroidAccountMessageCapAdapter;
 import com.armada.platform.protocol.backend.android.AndroidAccountRuntimeStatusAdapter;
 import com.armada.platform.protocol.backend.android.AndroidAccountParticipatingGroupMapper;
 import com.armada.platform.protocol.backend.android.AndroidGroupCreateResponseMapper;
@@ -56,6 +57,7 @@ import com.armada.platform.protocol.media.AndroidImageAssetStore;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.port.AccountLifecyclePort;
 import com.armada.platform.protocol.port.AccountParticipatingGroupPort;
+import com.armada.platform.protocol.port.AccountMessageCapPort;
 import com.armada.platform.protocol.port.AccountRuntimeStatusPort;
 import com.armada.platform.protocol.port.ContactPort;
 import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
@@ -70,6 +72,7 @@ import com.armada.platform.protocol.port.GroupProfilePort;
 import com.armada.platform.protocol.port.GroupSettingsPort;
 import com.armada.platform.protocol.port.GroupPreviewPort;
 import com.armada.platform.protocol.port.MessageSendPort;
+import com.armada.platform.protocol.routing.AccountMessageCapBackend;
 import com.armada.platform.protocol.routing.AccountRuntimeStatusBackend;
 import com.armada.platform.protocol.routing.AccountParticipatingGroupBackend;
 import com.armada.platform.protocol.routing.ContactBackend;
@@ -83,6 +86,7 @@ import com.armada.platform.protocol.routing.GroupInviteBackend;
 import com.armada.platform.protocol.routing.GroupLeaveBackend;
 import com.armada.platform.protocol.routing.GroupMemberListBackend;
 import com.armada.platform.protocol.routing.MessageSendBackend;
+import com.armada.platform.protocol.routing.RoutingAccountMessageCapPort;
 import com.armada.platform.protocol.routing.RoutingAccountRuntimeStatusPort;
 import com.armada.platform.protocol.routing.RoutingAccountParticipatingGroupPort;
 import com.armada.platform.protocol.routing.RoutingContactPort;
@@ -342,6 +346,33 @@ public class ProtocolConfiguration {
     public AccountRuntimeStatusBackend webAccountRuntimeStatusBackend(
             ProtocolHttpExecutorRegistry registry) {
         return new WebAccountRuntimeStatusAdapter(registry.required(ProtocolBackend.WEB));
+    }
+
+    /**
+     * 注册 Android Zhuan 新聊天额度查询 backend；Web 暂无对应能力，路由层会明确报不支持。
+     *
+     * @param client Android 原生 HTTP client
+     * @param decoder Android 原生响应 decoder
+     * @param errorMapper Android 原生业务错误 mapper
+     * @return Android 额度查询 backend
+     */
+    @Bean
+    public AccountMessageCapBackend androidAccountMessageCapBackend(
+            AndroidNativeClient client,
+            AndroidResponseDecoder decoder,
+            AndroidGroupJoinErrorMapper errorMapper) {
+        return new AndroidAccountMessageCapAdapter(client, decoder, errorMapper);
+    }
+
+    /**
+     * 注册按账号协议后端分发的新聊天额度查询端口。
+     *
+     * @param backends Spring 收集的额度查询 backend
+     * @return 额度查询路由端口
+     */
+    @Bean
+    public AccountMessageCapPort accountMessageCapPort(List<AccountMessageCapBackend> backends) {
+        return new RoutingAccountMessageCapPort(backends);
     }
 
     /**

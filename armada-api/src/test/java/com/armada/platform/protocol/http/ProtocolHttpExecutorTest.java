@@ -245,6 +245,39 @@ class ProtocolHttpExecutorTest {
         assertThat(closed).isTrue();
     }
 
+    @Test
+    void getTypedAcceptingStatusesParsesBodyOfAllowedErrorStatus() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ProtocolHttpExecutor executor = new ProtocolHttpExecutor(builder.build());
+
+        server.expect(requestTo("http://protocol.internal/v1/cap/919000000001?debug=1"))
+                .andRespond(withStatus(HttpStatus.BAD_GATEWAY)
+                        .contentType(MediaType.APPLICATION_JSON).body("{\"ok\":false}"));
+
+        PingResponse result = executor.getTypedAcceptingStatuses(
+                "/v1/cap/{phone}?debug=1", PingResponse.class, java.util.Set.of(502), "919000000001");
+
+        assertThat(result.ok()).isFalse();
+        server.verify();
+    }
+
+    @Test
+    void getTypedAcceptingStatusesStillRejectsOtherErrorStatus() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ProtocolHttpExecutor executor = new ProtocolHttpExecutor(builder.build());
+
+        server.expect(requestTo("http://protocol.internal/v1/cap/1"))
+                .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .contentType(MediaType.APPLICATION_JSON).body("{\"ok\":false}"));
+
+        assertThatThrownBy(() -> executor.getTypedAcceptingStatuses(
+                "/v1/cap/{phone}", PingResponse.class, java.util.Set.of(502), "1"))
+                .isInstanceOfSatisfying(ProtocolException.class,
+                        ex -> assertThat(ex.httpStatus()).isEqualTo(500));
+    }
+
     record PingResponse(boolean ok) {
     }
 }

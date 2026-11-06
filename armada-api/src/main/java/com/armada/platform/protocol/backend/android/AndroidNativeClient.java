@@ -27,6 +27,15 @@ public interface AndroidNativeClient {
     AndroidResponseEnvelope status(String wsPhone);
 
     /**
+     * 查询 Android 协议账号当前在线会话的新聊天额度（只读，不触发登录或发送）。
+     *
+     * @param wsPhone 不带加号的纯数字 WhatsApp 手机号
+     * @param debug 为 true 时要求协议层附带原始响应十六进制与完整解码内容
+     * @return Android 原生响应包；上游拒绝时 Data 为结构化诊断
+     */
+    AndroidResponseEnvelope messageCap(String wsPhone, boolean debug);
+
+    /**
      * 通过邀请码发起 Android 原生进群。
      *
      * @param wsPhone 不带加号的纯数字 WhatsApp 手机号

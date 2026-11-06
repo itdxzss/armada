@@ -4,6 +4,7 @@ import com.armada.platform.protocol.http.ProtocolHttpExecutor;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * 基于现有 Zhuan HTTP 契约的 Android 原生 client。
@@ -11,6 +12,10 @@ import java.util.List;
 public final class HttpAndroidNativeClient implements AndroidNativeClient {
 
     private static final String STATUS_URI_PREFIX = "/ws/v1/auth/status/";
+    private static final String MESSAGE_CAP_URI = "/ws/v1/account/message-cap/{phone}";
+    private static final String MESSAGE_CAP_DEBUG_URI = MESSAGE_CAP_URI + "?debug=1";
+    /** 额度接口用 400/408/409/502 携带结构化诊断体，需要按响应体解析而不是丢成异常。 */
+    private static final Set<Integer> MESSAGE_CAP_BODY_STATUSES = Set.of(400, 408, 409, 502);
     private static final String PAIR_CODE_INPUT_URI = "/ws/v1/auth/paircode/input";
     private static final String JOIN_URI_PREFIX = "/ws/v1/groups/invite/";
     private static final String MEMBERS_URI_PREFIX = "/ws/v1/groups/members/";
@@ -88,6 +93,22 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
         return httpExecutor.getTyped(
                 STATUS_URI_PREFIX + requireDigits(wsPhone),
                 AndroidResponseEnvelope.class);
+    }
+
+    /**
+     * 调用 Zhuan 新聊天额度自查接口。
+     *
+     * @param wsPhone 不带加号的纯数字 WhatsApp 手机号
+     * @param debug 是否附带原始响应与完整解码内容
+     * @return Android 原生响应包
+     */
+    @Override
+    public AndroidResponseEnvelope messageCap(String wsPhone, boolean debug) {
+        return httpExecutor.getTypedAcceptingStatuses(
+                debug ? MESSAGE_CAP_DEBUG_URI : MESSAGE_CAP_URI,
+                AndroidResponseEnvelope.class,
+                MESSAGE_CAP_BODY_STATUSES,
+                requireDigits(wsPhone));
     }
 
     /**

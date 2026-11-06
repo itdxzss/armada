@@ -17,6 +17,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -114,6 +115,31 @@ public class ProtocolHttpExecutor {
     public <T> T getTyped(String uriTemplate, Class<T> responseType, Object... uriVariables) {
         return execute("GET", uriTemplate, () -> restClient.get().uri(uriTemplate, uriVariables)
                 .exchange((request, response) -> readTyped(request.getURI(), response, responseType), true));
+    }
+
+    /**
+     * 发起 GET 请求，除 2xx 外还把指定的非 2xx 状态当作带业务体的有效响应解析。
+     *
+     * <p>仅用于下游用非 2xx 状态承载结构化诊断体（例如额度查询的 502 诊断）的接口；
+     * 未列入 {@code acceptedStatuses} 的错误状态仍按 {@link ProtocolException} 处理。</p>
+     *
+     * @param uriTemplate      相对或绝对 URI 模板
+     * @param responseType     响应类型
+     * @param acceptedStatuses 允许按响应体解析的非 2xx HTTP 状态
+     * @param uriVariables     URI 模板变量
+     * @param <T>              响应类型
+     * @return 反序列化后的响应对象
+     * @throws ProtocolException 状态不在允许范围、网络异常或响应体不可解析时抛出
+     */
+    public <T> T getTypedAcceptingStatuses(
+            String uriTemplate,
+            Class<T> responseType,
+            Set<Integer> acceptedStatuses,
+            Object... uriVariables) {
+        return execute("GET", uriTemplate, () -> restClient.get().uri(uriTemplate, uriVariables)
+                .exchange((request, response) -> acceptedStatuses.contains(response.getStatusCode().value())
+                        ? parseTyped(request.getURI(), response, responseType)
+                        : readTyped(request.getURI(), response, responseType), true));
     }
 
     /**
@@ -228,6 +254,19 @@ public class ProtocolHttpExecutor {
     private <T> T readTyped(URI uri, ClientHttpResponse response, Class<T> responseType) throws IOException {
         // 非 2xx 会在这里被转换成 ProtocolException;后续逻辑只处理成功响应。
         ensureSuccess(uri, response);
+        return parseTyped(uri, response, responseType);
+    }
+
+    /**
+     * 读取响应体并按目标类型反序列化，不检查 HTTP 状态。
+     *
+     * @param uri          实际请求 URI,用于异常消息定位
+     * @param response     RestClient 回调传入的原始响应
+     * @param responseType 目标响应类型
+     * @param <T>          响应类型
+     * @return 反序列化后的响应对象
+     */
+    private <T> T parseTyped(URI uri, ClientHttpResponse response, Class<T> responseType) {
         // response body 只能稳定读取一次,所以先读成字符串,再交给 Jackson 解析。
         String body = readBody(uri, response);
         try {

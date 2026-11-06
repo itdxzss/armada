@@ -1,5 +1,7 @@
 package com.armada.boot.config;
 
+import com.armada.platform.protocol.config.ProtocolProperties;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.registration.go.GoRegistrationClient;
 import com.armada.platform.registration.go.GoRegistrationProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -18,7 +20,7 @@ import org.springframework.web.client.RestClient;
 
 /** Go 注册客户端独立装配：POST 会触发发短信，HTTP 层不得自动重试或跟随重定向。 */
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(GoRegistrationProperties.class)
+@EnableConfigurationProperties({GoRegistrationProperties.class, ProtocolProperties.class})
 public class GoRegistrationConfiguration {
 
     /**
@@ -52,21 +54,21 @@ public class GoRegistrationConfiguration {
     }
 
     /**
-     * 构建 Go 注册客户端；创建时不访问 Go，未启用时地址可以为空。
+     * 构建 Go 注册客户端；创建时不访问 Go。注册接口与 Android 协议层同在一个 Go 服务上，直接复用其地址。
      * @param httpClient 禁重试的专用传输层
      * @param objectMapper 项目统一 JSON 解析器
-     * @param properties Go 注册配置
+     * @param protocol 协议层连接配置，取 Android 后端地址
      * @return 可被注册服务注入的客户端
      */
     @Bean
     public GoRegistrationClient goRegistrationClient(
             @Qualifier("goRegistrationHttpClient") CloseableHttpClient httpClient,
             ObjectMapper objectMapper,
-            GoRegistrationProperties properties) {
+            ProtocolProperties protocol) {
         RestClient restClient = RestClient.builder()
-                .baseUrl(properties.getBaseUrl())
+                .baseUrl(protocol.requireBackend(ProtocolBackend.ANDROID).getBaseUrl())
                 .requestFactory(new HttpComponentsClientHttpRequestFactory(httpClient))
                 .build();
-        return new GoRegistrationClient(restClient, objectMapper, properties);
+        return new GoRegistrationClient(restClient, objectMapper);
     }
 }

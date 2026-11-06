@@ -22,7 +22,6 @@ import org.springframework.web.client.RestClient;
 class GoRegistrationClientTest {
     private static final long TENANT = 7L;
     private static final ObjectMapper JSON = new ObjectMapper();
-    private final GoRegistrationProperties properties = new GoRegistrationProperties();
     private HttpServer server;
     private GoRegistrationClient client;
     private final AtomicReference<String> method = new AtomicReference<>();
@@ -52,12 +51,7 @@ class GoRegistrationClientTest {
             exchange.close();
         });
         server.start();
-        var tenant = new GoRegistrationProperties.Tenant();
-        tenant.setProfileId(42L);
-        properties.setEnabled(true);
-        properties.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
-        properties.getTenants().put(TENANT, tenant);
-        client = new GoRegistrationClient(RestClient.builder().baseUrl(properties.getBaseUrl()).build(), JSON, properties);
+        client = new GoRegistrationClient(RestClient.builder().baseUrl("http://127.0.0.1:" + server.getAddress().getPort()).build(), JSON);
     }
 
     @AfterEach
@@ -69,7 +63,7 @@ class GoRegistrationClientTest {
     void requestCodeSendsTenantWithoutBearerAndParsesWaitingCode() throws Exception {
         responseBody = envelope(0, "WAITING_CODE", 3, false, "");
 
-        var response = client.requestCode(TENANT, "sms-go-v1:7:9:send", new GoRegistrationRequest("+12025550123", 42L, "socks5://u:p@h:1080", false));
+        var response = client.requestCode(TENANT, "sms-go-v1:7:9:send", new GoRegistrationRequest("+12025550123", "socks5://u:p@h:1080", false));
 
         assertThat(response.kind()).isEqualTo(GoRegistrationResponse.Kind.DONE);
         assertThat(response.snapshot().state()).isEqualTo(GoRegistrationState.WAITING_CODE);
@@ -82,19 +76,19 @@ class GoRegistrationClientTest {
         assertThat(idempotencyKey.get()).isEqualTo("sms-go-v1:7:9:send");
         JsonNode body = JSON.readTree(requestBody.get());
         assertThat(body.get("phone").asText()).isEqualTo("+12025550123");
-        assertThat(body.get("profile_id").asLong()).isEqualTo(42L);
+        assertThat(body.has("profile_id")).isFalse();
         assertThat(body.has("is_business")).isTrue();
         assertThat(body.path("is_business").asBoolean()).isFalse();
         assertThat(body.get("proxy").asText()).isEqualTo("socks5://u:p@h:1080");
     }
 
     @Test
-    void businessRequestSendsDistinctProfileAndTypeWithoutExposingSecrets() throws Exception {
+    void businessRequestSendsTypeWithoutProfileAndWithoutExposingSecrets() throws Exception {
         responseBody = envelope(0, "WAITING_CODE", 3, false, "");
-        var request = new GoRegistrationRequest("+12025550123", 43L, "socks5://u:p@h:1080", true);
+        var request = new GoRegistrationRequest("+12025550123", "socks5://u:p@h:1080", true);
         assertThat(client.requestCode(TENANT, "business", request).kind()).isEqualTo(GoRegistrationResponse.Kind.DONE);
         JsonNode body = JSON.readTree(requestBody.get());
-        assertThat(body.get("profile_id").asLong()).isEqualTo(43L);
+        assertThat(body.has("profile_id")).isFalse();
         assertThat(body.get("is_business").asBoolean()).isTrue();
         assertThat(request.toString()).doesNotContain("12025550123", "socks5", "u:p");
     }
@@ -147,7 +141,7 @@ class GoRegistrationClientTest {
         status = http;
         responseBody = envelope(1, "WAITING_CODE", 3, false, errorCode == null ? "" : errorCode);
 
-        var response = client.requestCode(TENANT, "k", new GoRegistrationRequest("+12025550123", 42L, "socks5://u:p@h:1080", false));
+        var response = client.requestCode(TENANT, "k", new GoRegistrationRequest("+12025550123", "socks5://u:p@h:1080", false));
 
         assertThat(response.kind()).isEqualTo(expected);
         assertThat(response.snapshot().errorCode()).isEqualTo(errorCode == null ? "" : errorCode);
@@ -156,11 +150,11 @@ class GoRegistrationClientTest {
     @Test
     void successWithoutBusinessCodeZeroOrWithGarbageBodyIsNeverTreatedAsSuccess() {
         responseBody = envelope(1, "WAITING_CODE", 3, false, "");
-        assertThat(client.requestCode(TENANT, "k", new GoRegistrationRequest("+1", 42L, "p", false)).kind())
+        assertThat(client.requestCode(TENANT, "k", new GoRegistrationRequest("+1", "p", false)).kind())
                 .isEqualTo(GoRegistrationResponse.Kind.OUTCOME_UNKNOWN);
 
         responseBody = "not json";
-        assertThat(client.requestCode(TENANT, "k", new GoRegistrationRequest("+1", 42L, "p", false)).kind())
+        assertThat(client.requestCode(TENANT, "k", new GoRegistrationRequest("+1", "p", false)).kind())
                 .isEqualTo(GoRegistrationResponse.Kind.OUTCOME_UNKNOWN);
     }
 
@@ -168,27 +162,21 @@ class GoRegistrationClientTest {
     void connectionFailureReturnsNoResponseSoCallerCanReplayWithTheSameKey() {
         server.stop(0);
 
-        var response = client.requestCode(TENANT, "k", new GoRegistrationRequest("+12025550123", 42L, "socks5://u:p@h:1080", false));
+        var response = client.requestCode(TENANT, "k", new GoRegistrationRequest("+12025550123", "socks5://u:p@h:1080", false));
 
         assertThat(response.kind()).isEqualTo(GoRegistrationResponse.Kind.NO_RESPONSE);
     }
 
     @Test
-    void refusesWhenDisabledTenantUnknownOrTransactionIdUnsafe() {
+    void refusesInvalidTenantOrUnsafeTransactionId() {
         for (Long tenantId : new Long[]{null, 0L, -1L}) {
             assertThatThrownBy(() -> client.status(tenantId, "abc")).isInstanceOf(BusinessException.class);
         }
-        assertThatThrownBy(() -> client.requestCode(99L, "k", new GoRegistrationRequest("+1", 42L, "p", false))).isInstanceOf(BusinessException.class);
         assertThatThrownBy(() -> client.status(TENANT, "../admin")).isInstanceOf(BusinessException.class);
-        properties.setEnabled(false);
-        assertThatThrownBy(() -> client.status(TENANT, "abc")).isInstanceOf(BusinessException.class);
     }
 
     @Test
     void eachCallUsesItsPersistedTenantWithoutAnyCredential() {
-        var other = new GoRegistrationProperties.Tenant();
-        other.setProfileId(84L);
-        properties.getTenants().put(8L, other);
         responseBody = envelope(0, "WAITING_CODE", 3, false, "");
 
         client.status(8L, "2de772cb-f034-4cc2-8a0b-fbe218bcc01b");
@@ -201,9 +189,9 @@ class GoRegistrationClientTest {
 
     @Test
     void propertiesRejectInvalidStartupConfiguration() {
-        var bad = new GoRegistrationProperties();
-        bad.setEnabled(true);
-        assertThatThrownBy(bad::afterPropertiesSet).isInstanceOf(IllegalStateException.class);
+        var badTimeout = new GoRegistrationProperties();
+        badTimeout.setReadTimeout(java.time.Duration.ofSeconds(61));
+        assertThatThrownBy(badTimeout::afterPropertiesSet).isInstanceOf(IllegalStateException.class);
         var tooMany = new GoRegistrationProperties();
         tooMany.setConcurrency(GoRegistrationProperties.MAX_CONCURRENCY + 1);
         assertThatThrownBy(tooMany::afterPropertiesSet).isInstanceOf(IllegalStateException.class);

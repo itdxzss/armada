@@ -10,53 +10,34 @@ import org.springframework.boot.test.context.assertj.AssertableApplicationContex
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.util.TestPropertyValues;
 
-/** 证明 application.yml 里记录的环境变量名真的能绑定到配置；变量名写错部署时只会静默变成“未配置”。 */
+/** 证明自动注册不需要任何配置：客户端直接复用 Android 协议层地址，并发与超时有可用默认值。 */
 class GoRegistrationConfigurationTest {
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withUserConfiguration(GoRegistrationConfiguration.class)
             .withBean(ObjectMapper.class, ObjectMapper::new);
 
     @Test
-    void tenantProfilesBindWithoutCredentials() {
-        runner.withInitializer(context -> TestPropertyValues.of(
-                "ARMADA_ACCOUNT_SMSREGISTRATION_ENABLED=true",
-                "ARMADA_ACCOUNT_SMSREGISTRATION_BASEURL=http://go.internal:8080",
-                "ARMADA_ACCOUNT_SMSREGISTRATION_CONCURRENCY=16",
-                "ARMADA_ACCOUNT_SMSREGISTRATION_TENANTS_7_PROFILEID=42",
-                "ARMADA_ACCOUNT_SMSREGISTRATION_TENANTS_7_BUSINESSPROFILEID=43")
-                .applyTo(context.getEnvironment(), TestPropertyValues.Type.SYSTEM_ENVIRONMENT))
+    void startsWithoutAnyRegistrationConfigurationAndReusesAndroidBackendAddress() {
+        runner.withPropertyValues("armada.protocol.backends.ANDROID.base-url=http://go.internal:8001")
                 .run((AssertableApplicationContext context) -> {
                     assertThat(context).hasNotFailed().hasSingleBean(GoRegistrationClient.class);
-                    var properties = context.getBean(GoRegistrationProperties.class);
-                    assertThat(properties.isEnabled()).isTrue();
-                    assertThat(properties.getConcurrency()).isEqualTo(16);
-                    assertThat(properties.tenant(7L)).isPresent();
-                    assertThat(properties.tenant(7L).orElseThrow().getProfileId()).isEqualTo(42L);
-                    assertThat(properties.tenant(7L).orElseThrow().getBusinessProfileId()).isEqualTo(43L);
-                    // 没配置的租户不能使用自动注册。
-                    assertThat(properties.tenant(8L)).isEmpty();
+                    assertThat(context.getBean(GoRegistrationProperties.class).getConcurrency()).isEqualTo(32);
                 });
     }
 
     @Test
-    void businessOnlyTenantIsValidButReusingTheSameProfileForBothTypesFails() {
-        var configured = runner.withPropertyValues("armada.account.sms-registration.enabled=true",
-                "armada.account.sms-registration.base-url=http://go.internal:8080",
-                "armada.account.sms-registration.tenants[7].business-profile-id=43");
-        configured.run(context -> assertThat(context).hasNotFailed());
-        configured.withPropertyValues("armada.account.sms-registration.tenants[7].profile-id=43")
-                .run(context -> assertThat(context).hasFailed());
-        configured.withPropertyValues("armada.account.sms-registration.tenants[7].profile-id=-1")
+    void concurrencyBindsFromEnvironmentAndInvalidValuesFailStartup() {
+        runner.withPropertyValues("armada.protocol.backends.ANDROID.base-url=http://go.internal:8001")
+                .withInitializer(context -> TestPropertyValues.of("ARMADA_ACCOUNT_SMSREGISTRATION_CONCURRENCY=16")
+                        .applyTo(context.getEnvironment(), TestPropertyValues.Type.SYSTEM_ENVIRONMENT))
+                .run(context -> assertThat(context.getBean(GoRegistrationProperties.class).getConcurrency()).isEqualTo(16));
+        runner.withPropertyValues("armada.protocol.backends.ANDROID.base-url=http://go.internal:8001",
+                "armada.account.sms-registration.concurrency=65")
                 .run(context -> assertThat(context).hasFailed());
     }
 
     @Test
-    void defaultsKeepTheFeatureOffAndEnabledWithoutProfilesFailsStartup() {
-        runner.run(context -> {
-            assertThat(context).hasNotFailed();
-            assertThat(context.getBean(GoRegistrationProperties.class).isEnabled()).isFalse();
-        });
-        runner.withPropertyValues("armada.account.sms-registration.enabled=true")
-                .run(context -> assertThat(context).hasFailed());
+    void missingAndroidBackendAddressFailsStartup() {
+        runner.run(context -> assertThat(context).hasFailed());
     }
 }

@@ -11,12 +11,9 @@ import com.armada.account.model.enums.SmsRegistrationState;
 import com.armada.account.model.vo.SmsActivationVO;
 import com.armada.account.service.SmsRegistrationService;
 import com.armada.platform.country.service.CountryService;
-import com.armada.platform.registration.go.GoRegistrationProperties;
 import com.armada.resource.service.IpProxyService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
-import com.armada.shared.tenant.TenantContext;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -28,8 +25,6 @@ import org.springframework.transaction.annotation.Transactional;
 /** 接码订单 Go 注册办理的开始入口与订单占用判断；后台推进见 {@link SmsRegistrationWorker}。 */
 @Service
 public class SmsRegistrationServiceImpl implements SmsRegistrationService {
-    /** Go 注册未启用，或当前租户没有 Go 凭据。 */
-    static final String REGISTRATION_DISABLED = "GO_REGISTRATION_DISABLED";
     /** 办理记录数据访问。 */
     private final SmsRegistrationMapper registrations;
     /** 接码订单数据访问；本类只读订单，不经 SmsActivationService，避免两个服务互相依赖。 */
@@ -40,36 +35,21 @@ public class SmsRegistrationServiceImpl implements SmsRegistrationService {
     private final IpProxyService proxies;
     /** 号码区号到 IP 国家的解析。 */
     private final CountryService countries;
-    /** Go 注册配置。 */
-    private final GoRegistrationProperties properties;
 
-    /** 装配数据访问、代理池与配置。 */
+    /** 装配数据访问与代理池。 */
     public SmsRegistrationServiceImpl(SmsRegistrationMapper registrations, SmsActivationMapper activations,
-            SmsActivationConverter converter, IpProxyService proxies, CountryService countries,
-            GoRegistrationProperties properties) {
+            SmsActivationConverter converter, IpProxyService proxies, CountryService countries) {
         this.registrations = registrations;
         this.activations = activations;
         this.converter = converter;
         this.proxies = proxies;
         this.countries = countries;
-        this.properties = properties;
-    }
-
-    @Override
-    public String disabledReason() {
-        boolean usable = !availableAccountTypes().isEmpty();
-        return usable ? "" : REGISTRATION_DISABLED;
     }
 
     @Override
     public List<Integer> availableAccountTypes() {
-        if (!properties.isEnabled()) { return List.of(); }
-        var tenant = properties.tenant(TenantContext.get());
-        if (tenant.isEmpty()) { return List.of(); }
-        List<Integer> types = new ArrayList<>();
-        if (tenant.get().getProfileId() > 0) { types.add(AccountTypeCode.PERSONAL); }
-        if (tenant.get().getBusinessProfileId() > 0) { types.add(AccountTypeCode.BUSINESS); }
-        return List.copyOf(types);
+        // Go 自动生成设备，个人版与商业版都不需要 Armada 侧配置。
+        return List.of(AccountTypeCode.PERSONAL, AccountTypeCode.BUSINESS);
     }
 
     /**
@@ -82,9 +62,6 @@ public class SmsRegistrationServiceImpl implements SmsRegistrationService {
         if (accountType != AccountTypeCode.PERSONAL && accountType != AccountTypeCode.BUSINESS) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号类型必须为个人或商业");
         }
-        if (!disabledReason().isEmpty()) {
-            throw new BusinessException(ErrorCode.VALIDATION, "自动注册未开放：" + REGISTRATION_DISABLED);
-        }
         SmsActivation order = activations.find(smsActivationId);
         if (order == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND);
@@ -96,9 +73,6 @@ public class SmsRegistrationServiceImpl implements SmsRegistrationService {
             }
             // 重复点击：返回已有办理记录，不再占代理、不再发码。
             return view(order, existing);
-        }
-        if (!availableAccountTypes().contains(accountType)) {
-            throw new BusinessException(ErrorCode.VALIDATION, "当前租户未配置所选账号类型的注册服务");
         }
         requireStartable(order);
         var proxy = proxies.allocateRegistrationEndpoint(order.getId(),
@@ -146,10 +120,9 @@ public class SmsRegistrationServiceImpl implements SmsRegistrationService {
         var row = new SmsRegistration();
         row.setSmsActivationId(order.getId());
         row.setState(SmsRegistrationState.REQUESTING.code());
-        // 配置 ID 开始时固定，之后所有重放都用库里这个值，Go 的幂等指纹包含它。
-        var tenant = properties.tenant(TenantContext.get()).orElseThrow();
         row.setAccountType(accountType);
-        row.setGoProfileId(accountType == AccountTypeCode.BUSINESS ? tenant.getBusinessProfileId() : tenant.getProfileId());
+        // 设备由 Go 在首次发码时自动生成并随事务冻结，Armada 不再指定配置 ID；列保留为 0。
+        row.setGoProfileId(0L);
         row.setProxyId(proxyId);
         row.setFailureCode("");
         row.setCreatedBy(operatorId);

@@ -160,7 +160,7 @@ public class SmsRegistrationWorker {
         }
         // 号商给的是不带加号的国际数字，Go 要求显式 + 号。
         GoRegistrationResponse response = go.requestCode(row.getTenantId(), key(row, SEND), new GoRegistrationRequest("+" + order.getPhoneNumber(),
-                row.getGoProfileId(), proxyUrl, row.getAccountType() == AccountTypeCode.BUSINESS));
+                proxyUrl, row.getAccountType() == AccountTypeCode.BUSINESS));
         if (response.kind() != GoRegistrationResponse.Kind.DONE) {
             failureOf(response).ifPresent(reason -> fail(row, reason));
             return;

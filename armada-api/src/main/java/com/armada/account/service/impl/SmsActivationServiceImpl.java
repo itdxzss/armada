@@ -79,9 +79,9 @@ public class SmsActivationServiceImpl implements SmsActivationService {
             try { balance = grizzly.getBalance(); }
             catch (GrizzlySmsException exception) { LOG.warn("sms activation code=BALANCE_{}", exception.getReason()); }
         }
-        String registrationDisabled = registrationService.disabledReason();
+        // 自动注册永远开放；两个字段保留给页面，恒为可用。
         return new SmsActivationOptionsVO(catalog.serviceCode(), catalog.countries(), balance, disabled.isEmpty(),
-                disabled, registrationDisabled.isEmpty(), registrationDisabled, registrationService.availableAccountTypes());
+                disabled, true, "", registrationService.availableAccountTypes());
     }
 
     @Override

@@ -46,18 +46,13 @@ public final class GoRegistrationClient {
     private final RestClient restClient;
     /** 解析 Go 的 Code/Data/Msg 信封。 */
     private final ObjectMapper objectMapper;
-    /** 服务端配置，每次请求前检查启用状态和租户归属。 */
-    private final GoRegistrationProperties properties;
-
     /**
      * @param restClient 专用 HTTP 客户端，装配层必须禁止自动重试和重定向
      * @param objectMapper 项目 JSON 解析器
-     * @param properties 服务端配置
      */
-    public GoRegistrationClient(RestClient restClient, ObjectMapper objectMapper, GoRegistrationProperties properties) {
+    public GoRegistrationClient(RestClient restClient, ObjectMapper objectMapper) {
         this.restClient = restClient;
         this.objectMapper = objectMapper;
-        this.properties = properties;
     }
 
     /**
@@ -66,7 +61,7 @@ public final class GoRegistrationClient {
      * @param idempotencyKey 稳定幂等键，重放必须与首次完全相同
      * @param request 开始时冻结的号码、配置、代理与账号类型，禁止写日志
      * @return 分类后的结果
-     * @throws BusinessException 未启用或该租户未配置时抛出
+     * @throws BusinessException 租户无效时抛出
      */
     public GoRegistrationResponse requestCode(Long tenantId, String idempotencyKey, GoRegistrationRequest request) {
         return post(tenantId, BASE_PATH + "/code-requests", idempotencyKey, request);
@@ -80,7 +75,7 @@ public final class GoRegistrationClient {
      * @param code 验证码字符串，保留前导零，不 trim 不转整数
      * @param expectedVersion 发码成功时拿到的 version，重放必须不变
      * @return 分类后的结果
-     * @throws BusinessException 未启用、该租户未配置或事务 ID 非法时抛出
+     * @throws BusinessException 租户无效或事务 ID 非法时抛出
      */
     public GoRegistrationResponse verifyCode(Long tenantId, String idempotencyKey, String transactionId, String code,
             long expectedVersion) {
@@ -94,7 +89,7 @@ public final class GoRegistrationClient {
      * @param tenantId 租户
      * @param transactionId Go 事务 ID
      * @return 分类后的结果
-     * @throws BusinessException 未启用、该租户未配置或事务 ID 非法时抛出
+     * @throws BusinessException 租户无效或事务 ID 非法时抛出
      */
     public GoRegistrationResponse status(Long tenantId, String transactionId) {
         requireTransactionId(transactionId);
@@ -123,11 +118,8 @@ public final class GoRegistrationClient {
     }
 
     private String requireTenant(Long tenantId) {
-        if (!properties.isEnabled()) {
-            throw new BusinessException(ErrorCode.SMS_PROVIDER_UNAVAILABLE, "Go 注册未启用");
-        }
-        if (properties.tenant(tenantId).isEmpty()) {
-            throw new BusinessException(ErrorCode.SMS_PROVIDER_UNAVAILABLE, "当前租户未配置 Go 注册");
+        if (tenantId == null || tenantId <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "租户 ID 无效");
         }
         return tenantId.toString();
     }

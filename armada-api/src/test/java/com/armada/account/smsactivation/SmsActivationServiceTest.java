@@ -54,7 +54,6 @@ class SmsActivationServiceTest {
     void setUp() {
         properties.setApiKey("test-only-key");
         // 办理状态附加与占用判断由 SmsRegistrationService 测试负责，这里让它透传、不占用。
-        when(registrationService.disabledReason()).thenReturn("");
         when(registrationService.attach(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(registrations.catalog()).thenReturn(new AccountRegistrationCatalogVO("wa", "WhatsApp",
                 List.of(new AccountRegistrationCatalogVO.Country("187", "美国")), false, "COBALT_DISABLED"));

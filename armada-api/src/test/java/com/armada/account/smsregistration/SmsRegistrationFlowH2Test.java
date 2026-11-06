@@ -110,17 +110,11 @@ class SmsRegistrationFlowH2Test {
             }
         }
         SmsRegistrationMigration.apply(dataSource);
-        var tenant = new GoRegistrationProperties.Tenant();
-        tenant.setProfileId(42L);
-        tenant.setBusinessProfileId(43L);
-        goProperties.setEnabled(true);
         goProperties.setConcurrency(8);
-        goProperties.getTenants().put(TENANT, tenant);
         var grizzlyProperties = new GrizzlySmsProperties();
         grizzlyProperties.setApiKey("test-only-key");
         var converter = Mappers.getMapper(SmsActivationConverter.class);
-        registrationService = new SmsRegistrationServiceImpl(registrations, activations, converter, proxies, countries,
-                goProperties);
+        registrationService = new SmsRegistrationServiceImpl(registrations, activations, converter, proxies, countries);
         activationService = new SmsActivationServiceImpl(activations, converter, mock(AccountRegistrationService.class),
                 grizzly, grizzlyProperties, registrationService);
         worker = new SmsRegistrationWorker(registrations, activations, activationService, go, proxies,
@@ -141,17 +135,16 @@ class SmsRegistrationFlowH2Test {
     }
 
     @Test
-    void businessTypeAndProfileStayFrozenThroughReplayAndVerification() {
+    void businessTypeStaysFrozenThroughReplayAndVerification() {
         long id = order("biz-1", "12025550123", 60_000);
         var started = registrationService.start(id, 5L, 2);
         assertThat(started.registrationAccountType()).isEqualTo(2);
         assertThat(registration(id).getAccountType()).isEqualTo(2);
-        assertThat(registration(id).getGoProfileId()).isEqualTo(43L);
+        assertThat(registration(id).getGoProfileId()).isZero();
         assertThat(registrationService.start(id, 5L, 2).registrationAccountType()).isEqualTo(2);
         assertThatThrownBy(() -> registrationService.start(id, 5L, 1)).isInstanceOf(BusinessException.class)
                 .hasMessageContaining("不能更改");
-        // 改配置不能影响已开始事务；首次超时后重放必须仍然使用旧商业配置和类型。
-        goProperties.getTenants().get(TENANT).setBusinessProfileId(99L);
+        // 首次超时后重放必须仍然使用开始时冻结的商业版类型。
         when(go.requestCode(eq(TENANT), anyString(), any(GoRegistrationRequest.class)))
                 .thenReturn(GoRegistrationResponse.of(Kind.NO_RESPONSE), done(GoRegistrationState.WAITING_CODE, 3, false));
         when(grizzly.getStatus("biz-1")).thenReturn(waiting());
@@ -159,35 +152,29 @@ class SmsRegistrationFlowH2Test {
         worker.tick();
         String key = "sms-go-v1:7:" + registration(id).getId();
         verify(go, times(2)).requestCode(TENANT, key + ":send",
-                new GoRegistrationRequest("+12025550123", 43L, PROXY_URL, true));
+                new GoRegistrationRequest("+12025550123", PROXY_URL, true));
         when(grizzly.getStatus("biz-1")).thenReturn(received("004271"));
         when(go.verifyCode(eq(TENANT), anyString(), eq(TX), eq("004271"), eq(3L)))
                 .thenReturn(done(GoRegistrationState.REGISTERED, 5, true));
         worker.tick();
         assertThat(registration(id).getState()).isEqualTo(SmsRegistrationState.REGISTERED.code());
         assertThat(registration(id).getAccountType()).isEqualTo(2);
-        assertThat(registration(id).getGoProfileId()).isEqualTo(43L);
+        assertThat(registration(id).getGoProfileId()).isZero();
     }
 
     @Test
-    void unsupportedOrUnconfiguredTypeCannotAllocateProxy() {
+    void bothAccountTypesAreAlwaysAvailableAndUnknownTypeCannotAllocateProxy() {
         long id = order("biz-2", "12025550124", 60_000);
         assertThat(registrationService.availableAccountTypes()).containsExactly(1, 2);
-        goProperties.getTenants().get(TENANT).setBusinessProfileId(0);
-        assertThat(registrationService.availableAccountTypes()).containsExactly(1);
-        assertThatThrownBy(() -> registrationService.start(id, 5L, 2)).hasMessageContaining("未配置");
         assertThatThrownBy(() -> registrationService.start(id, 5L, 3)).hasMessageContaining("账号类型");
         verify(proxies, never()).allocateRegistrationEndpoint(anyLong(), anyString());
         assertThat(registration(id)).isNull();
-        goProperties.getTenants().get(TENANT).setProfileId(0);
-        goProperties.getTenants().get(TENANT).setBusinessProfileId(43);
-        assertThat(registrationService.availableAccountTypes()).containsExactly(2);
     }
 
     @Test
     void singleNumberGoesThroughSendWaitVerifyAndCompletesOrderOnce() {
         long orderId = order("9001", "12025550123", 60_000);
-        when(go.requestCode(eq(TENANT), anyString(), eq(new GoRegistrationRequest("+12025550123", 42L, PROXY_URL, false)))).thenReturn(done(GoRegistrationState.WAITING_CODE, 3, false));
+        when(go.requestCode(eq(TENANT), anyString(), eq(new GoRegistrationRequest("+12025550123", PROXY_URL, false)))).thenReturn(done(GoRegistrationState.WAITING_CODE, 3, false));
         when(grizzly.getStatus("9001")).thenReturn(waiting());
 
         var started = registrationService.start(orderId, 5L, 1);
@@ -198,7 +185,7 @@ class SmsRegistrationFlowH2Test {
         assertThat(registration(orderId).getGoTransactionId()).isEqualTo(TX);
         assertThat(registration(orderId).getGoVersion()).isEqualTo(3L);
         String key = "sms-go-v1:7:" + registration(orderId).getId();
-        verify(go).requestCode(TENANT, key + ":send", new GoRegistrationRequest("+12025550123", 42L, PROXY_URL, false));
+        verify(go).requestCode(TENANT, key + ":send", new GoRegistrationRequest("+12025550123", PROXY_URL, false));
 
         worker.tick();
         assertThat(registration(orderId).getState()).isEqualTo(SmsRegistrationState.WAITING_CODE.code());
@@ -226,7 +213,7 @@ class SmsRegistrationFlowH2Test {
         for (int i = 0; i < 3; i++) {
             ids[i] = order("900" + i, phones[i], 60_000);
             int index = i;
-            when(go.requestCode(eq(TENANT), anyString(), eq(new GoRegistrationRequest("+" + phones[i], 42L, PROXY_URL, false))))
+            when(go.requestCode(eq(TENANT), anyString(), eq(new GoRegistrationRequest("+" + phones[i], PROXY_URL, false))))
                     .thenReturn(snapshot(GoRegistrationState.WAITING_CODE, "tx-" + index, 10 + index, false));
             when(grizzly.getStatus("900" + i)).thenReturn(waiting());
             registrationService.start(ids[i], 5L, 1);
@@ -282,7 +269,7 @@ class SmsRegistrationFlowH2Test {
         assertThat(registration(orderId).getState()).isEqualTo(SmsRegistrationState.WAITING_CODE.code());
         // 四次发码请求逐项相同：同键、同号码、同配置、同代理连接串。
         String key = "sms-go-v1:7:" + registration(orderId).getId() + ":send";
-        verify(go, times(4)).requestCode(TENANT, key, new GoRegistrationRequest("+12025550123", 42L, PROXY_URL, false));
+        verify(go, times(4)).requestCode(TENANT, key, new GoRegistrationRequest("+12025550123", PROXY_URL, false));
 
         worker.tick();
         assertThat(registration(orderId).getState()).isEqualTo(SmsRegistrationState.VERIFYING.code());
@@ -554,13 +541,7 @@ class SmsRegistrationFlowH2Test {
         }
         assertThatThrownBy(() -> registrationService.start(999L, 5L, 1)).isInstanceOf(BusinessException.class);
 
-        goProperties.getTenants().clear();
-        long fine = order("9004", "12025550104", 60_000);
-        assertThatThrownBy(() -> registrationService.start(fine, 5L, 1)).hasMessageContaining("GO_REGISTRATION_DISABLED");
-        assertThat(registrationService.disabledReason()).isEqualTo("GO_REGISTRATION_DISABLED");
-
         verify(proxies, never()).allocateRegistrationEndpoint(anyLong(), anyString());
-        assertThat(registrations.findByActivation(fine)).isNull();
     }
 
     @Test

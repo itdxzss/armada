@@ -17,18 +17,15 @@ public interface SmsRegistrationService {
      * @param operatorId 当前登录用户 ID
      * @param accountType 账号类型，1 个人、2 商业；开始后不得更改
      * @return 附带办理状态的订单
-     * @throws com.armada.shared.exception.BusinessException 未启用、订单不可开始、暂无空闲代理时抛出
+     * @throws com.armada.shared.exception.BusinessException 订单不可开始、暂无空闲代理时抛出
      */
     SmsActivationVO start(Long smsActivationId, long operatorId, int accountType);
 
-    /** @return 当前租户已配置的账号类型，1 个人、2 商业；没有配置时为空 */
+    /** @return 可注册的账号类型，1 个人、2 商业；设备由 Go 自动生成，不需要租户配置 */
     List<Integer> availableAccountTypes();
 
     /** @return 订单是否正被后台注册占用（申请中、等码、验证中） */
     boolean isOccupied(Long smsActivationId);
-
-    /** @return 当前租户不能开始注册的固定原因码；可用时为空串 */
-    String disabledReason();
 
     /** @return 给订单视图附带办理状态后的新列表，顺序不变；没有办理记录的订单保持原样 */
     List<SmsActivationVO> attach(List<SmsActivationVO> views);

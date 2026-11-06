@@ -309,14 +309,10 @@ armada:
       scheduler:
         enabled: ${ACCOUNT_IMPORT_ONLINE_DISPATCH_SCHEDULER_ENABLED:true}
         fixed-delay-ms: ${ACCOUNT_IMPORT_ONLINE_DISPATCH_SCHEDULER_FIXED_DELAY_MS:10000}
-    # 接码订单对接 Go 注册：默认关闭，Go 的真实网络层就绪前不要打开。
-    # 每个租户的 Go 设备配置 ID 用环境变量注入；内部 HTTP 传递租户 ID，无需调用令牌：
-    # ARMADA_ACCOUNT_SMSREGISTRATION_TENANTS_<租户ID>_PROFILEID（个人版）。
-    # 商业版另配 ARMADA_ACCOUNT_SMSREGISTRATION_TENANTS_<租户ID>_BUSINESSPROFILEID，两种配置 ID 不得相同。
+    # 接码订单对接 Go 注册：永远开启，无需配置。服务地址复用 Android 协议层地址（PROTOCOL_ANDROID_BASE_URL），
+    # 设备由 Go 自动生成；内部 HTTP 传递租户 ID，无需调用令牌。
     # concurrency 是一轮内同时办理的记录数，不得超过 Go 的 max_concurrent（上限 64）。
     sms-registration:
-      enabled: ${SMS_REGISTRATION_ENABLED:false}
-      base-url: ${SMS_REGISTRATION_GO_BASE_URL:}
       concurrency: ${SMS_REGISTRATION_CONCURRENCY:32}
       fixed-delay-ms: ${SMS_REGISTRATION_FIXED_DELAY_MS:5000}
   account-group-sync:

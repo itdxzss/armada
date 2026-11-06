@@ -1,13 +1,11 @@
 package com.armada.account.job;
 
 import com.armada.account.service.impl.SmsRegistrationWorker;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/** 显式启用后才推进接码订单的 Go 注册；默认关闭，普通启动不会访问 Go 或号商。 */
+/** 推进接码订单的 Go 注册；没有进行中的办理记录时一轮不访问 Go 或号商。 */
 @Component
-@ConditionalOnProperty(prefix = "armada.account.sms-registration", name = "enabled", havingValue = "true")
 public class AccountSmsRegistrationScheduler {
     /** 注册推进。 */
     private final SmsRegistrationWorker worker;

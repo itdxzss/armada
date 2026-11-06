@@ -36,6 +36,16 @@ public interface AndroidNativeClient {
     AndroidResponseEnvelope messageCap(String wsPhone, boolean debug);
 
     /**
+     * 用 Android 协议账号的在线会话只读查询目标号码的档位信号（不发消息、不改资料）。
+     *
+     * @param wsPhone 发起查询账号，不带加号的纯数字手机号
+     * @param targetPhone 被查询号码，不带加号的纯数字手机号
+     * @param debug 为 true 时要求协议层附带原始响应十六进制，仅供排查 query_id 与响应格式
+     * @return Android 原生响应包
+     */
+    AndroidResponseEnvelope accountIntegrity(String wsPhone, String targetPhone, boolean debug);
+
+    /**
      * 通过邀请码发起 Android 原生进群。
      *
      * @param wsPhone 不带加号的纯数字 WhatsApp 手机号

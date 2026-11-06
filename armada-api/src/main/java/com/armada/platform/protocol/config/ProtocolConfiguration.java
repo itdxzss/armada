@@ -322,11 +322,21 @@ public class ProtocolConfiguration {
         return new HttpAccountLifecycleAdapter(protocolHttpExecutor);
     }
 
-    /** 注册 Web 只读档位查询能力；Android 适配留到第二期。 */
+    /** 注册 Web 只读档位查询能力。 */
     @Bean
     public com.armada.platform.protocol.routing.AccountIntegrityBackend webAccountIntegrityBackend(
             ProtocolHttpExecutorRegistry registry) {
         return new com.armada.platform.protocol.backend.web.WebAccountIntegrityAdapter(registry.required(ProtocolBackend.WEB));
+    }
+
+    /** 注册 Android 只读档位查询能力；与 Web 共用同一套预览/执行路由。 */
+    @Bean
+    public com.armada.platform.protocol.routing.AccountIntegrityBackend androidAccountIntegrityBackend(
+            AndroidNativeClient client,
+            AndroidResponseDecoder decoder,
+            AndroidGroupJoinErrorMapper errorMapper) {
+        return new com.armada.platform.protocol.backend.android.AndroidAccountIntegrityAdapter(
+                client, decoder, errorMapper);
     }
 
     /** 预览和执行共用的档位协议能力路由。 */

@@ -8,7 +8,7 @@ import com.armada.platform.protocol.port.AccountIntegrityPort;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
-/** 按执行方后端分发；一期只注册 Web，不为 Android 偷用 Web 连接。 */
+/** 按执行方后端分发；Web、Android 各用自己的连接，不互相借用。 */
 public final class RoutingAccountIntegrityPort implements AccountIntegrityPort {
     private final Map<ProtocolBackend, AccountIntegrityBackend> backends;
     /** 收集后端，重复注册视作装配错误。 */

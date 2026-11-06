@@ -16,6 +16,8 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
     private static final String MESSAGE_CAP_DEBUG_URI = MESSAGE_CAP_URI + "?debug=1";
     /** 额度接口用 400/408/409/502 携带结构化诊断体，需要按响应体解析而不是丢成异常。 */
     private static final Set<Integer> MESSAGE_CAP_BODY_STATUSES = Set.of(400, 408, 409, 502);
+    private static final String ACCOUNT_INTEGRITY_URI = "/ws/v1/account/integrity/{phone}";
+    private static final String ACCOUNT_INTEGRITY_DEBUG_URI = ACCOUNT_INTEGRITY_URI + "?debug=1";
     private static final String PAIR_CODE_INPUT_URI = "/ws/v1/auth/paircode/input";
     private static final String JOIN_URI_PREFIX = "/ws/v1/groups/invite/";
     private static final String MEMBERS_URI_PREFIX = "/ws/v1/groups/members/";
@@ -108,6 +110,23 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
                 debug ? MESSAGE_CAP_DEBUG_URI : MESSAGE_CAP_URI,
                 AndroidResponseEnvelope.class,
                 MESSAGE_CAP_BODY_STATUSES,
+                requireDigits(wsPhone));
+    }
+
+    /**
+     * 查询目标号码的档位信号；业务成败在响应体 Code 中，HTTP 状态恒为 200。
+     *
+     * @param wsPhone 发起查询账号，不带加号的纯数字手机号
+     * @param targetPhone 被查询号码，不带加号的纯数字手机号
+     * @param debug 是否附带原始响应十六进制
+     * @return Android 原生响应包
+     */
+    @Override
+    public AndroidResponseEnvelope accountIntegrity(String wsPhone, String targetPhone, boolean debug) {
+        return httpExecutor.postTyped(
+                debug ? ACCOUNT_INTEGRITY_DEBUG_URI : ACCOUNT_INTEGRITY_URI,
+                java.util.Map.of("phone", requireDigits(targetPhone)),
+                AndroidResponseEnvelope.class,
                 requireDigits(wsPhone));
     }
 

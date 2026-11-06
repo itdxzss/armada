@@ -128,7 +128,7 @@ public class AccountTierCheckTransactions {
     }
     private static boolean eligibleExecutor(AccountTierCheckCandidate a, AuthPrincipal p) {
         return AccountTierCheckPolicy.owns(p, a) && AccountTierCheckPolicy.online(a)
-                && "WEB".equals(a.protocolBackend()) && a.protocolAccountId() != null && !a.protocolAccountId().isBlank()
+                && ("WEB".equals(a.protocolBackend()) || "ANDROID".equals(a.protocolBackend())) && a.protocolAccountId() != null && !a.protocolAccountId().isBlank()
                 && a.wsPhone() != null && !a.wsPhone().isBlank();
     }
     private static boolean matches(AccountTierCheckItem item, AccountTierCheckWork work) {

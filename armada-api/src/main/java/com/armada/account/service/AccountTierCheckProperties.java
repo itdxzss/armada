@@ -1,19 +1,16 @@
 package com.armada.account.service;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
-/** 默认关闭的真实查询调度配置；默认冷却仅为待试跑占位值。 */
+/** 真实查询调度配置；默认冷却仅为待试跑占位值。 */
 @Component
 @ConfigurationProperties(prefix = "armada.tier-check")
 public class AccountTierCheckProperties {
-    private boolean enabled = false;
     private long intervalMs = 4000;
     private int roundSize = 20;
     private long cooldownMs = 300_000;
     private int poolSize = 2;
     private long resultTimeoutMs = 180_000;
     private int scanLimit = 64;
-    public boolean isEnabled() { return enabled; }
-    public void setEnabled(boolean v) { enabled = v; }
     public long getIntervalMs() { return intervalMs; }
     public void setIntervalMs(long v) { range(v, 3000, 3600000); intervalMs = v; }
     public int getRoundSize() { return roundSize; }

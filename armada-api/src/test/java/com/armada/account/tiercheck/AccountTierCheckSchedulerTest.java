@@ -38,20 +38,16 @@ class AccountTierCheckSchedulerTest {
     @Configuration(proxyBeanMethods = false) @Import(AccountTierCheckScheduler.class)
     static class OnlyScheduler {}
 
-    @Test void springDoesNotCreateSchedulerWhenFlagIsMissingOrFalse() {
-        var context = new ApplicationContextRunner().withUserConfiguration(OnlyScheduler.class);
-        context.run(c -> assertThat(c).doesNotHaveBean(AccountTierCheckScheduler.class));
-        context.withPropertyValues("armada.tier-check.enabled=false").run(c -> assertThat(c).doesNotHaveBean(AccountTierCheckScheduler.class));
-    }
-    @Test void defaultOffNeverTouchesDatabaseOrProtocol() {
-        var mapper = mock(AccountTierCheckMapper.class); var tx = mock(AccountTierCheckTransactions.class); var port = mock(AccountIntegrityPort.class);
-        var props = new AccountTierCheckProperties(); assertThat(props.isEnabled()).isFalse();
-        var scheduler = new AccountTierCheckScheduler(mapper, tx, port, props);
-        try { scheduler.tick(); verifyNoInteractions(mapper, tx, port); } finally { scheduler.close(); }
+    @Test void springCreatesSchedulerWithoutAnyFlag() {
+        new ApplicationContextRunner().withUserConfiguration(OnlyScheduler.class, AccountTierCheckProperties.class)
+                .withBean(AccountTierCheckMapper.class, () -> mock(AccountTierCheckMapper.class))
+                .withBean(AccountTierCheckTransactions.class, () -> mock(AccountTierCheckTransactions.class))
+                .withBean(AccountIntegrityPort.class, () -> mock(AccountIntegrityPort.class))
+                .run(c -> assertThat(c).hasSingleBean(AccountTierCheckScheduler.class));
     }
     @Test void blockingHttpDoesNotBlockTickAndPoolCapacityBoundsClaims() throws Exception {
         var mapper = mock(AccountTierCheckMapper.class); var tx = mock(AccountTierCheckTransactions.class); var port = mock(AccountIntegrityPort.class);
-        var props = new AccountTierCheckProperties(); props.setEnabled(true); props.setPoolSize(1);
+        var props = new AccountTierCheckProperties(); props.setPoolSize(1);
         var first = new AccountTierCheckWork(7L, 1L, 1L); var second = new AccountTierCheckWork(8L, 2L, 2L);
         var claim = new AccountTierCheckClaim(first, 1, new ProtocolAccountRef(1L, ProtocolBackend.WEB, "fixture", "00000000001"), "fixture", "00000000002");
         when(mapper.recoverable(anyLong(), anyInt())).thenReturn(List.of());

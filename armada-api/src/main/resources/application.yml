@@ -48,8 +48,6 @@ server:
 
 armada:
   tier-check:
-    # 默认关闭；只有用户授权并确认目标环境后才能打开真实账号查询。
-    enabled: ${ARMADA_TIER_CHECK_ENABLED:false}
     interval-ms: ${ARMADA_TIER_CHECK_INTERVAL_MS:4000}
     round-size: ${ARMADA_TIER_CHECK_ROUND_SIZE:20}
     # 仅占位值，真实限流边界待授权试跑确认。

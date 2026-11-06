@@ -14,13 +14,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/** 默认关闭；tick 只认领，网络调用在有界线程池中且每个工作线程恢复租户上下文。 */
+/** 常开；tick 只认领，网络调用在有界线程池中且每个工作线程恢复租户上下文。 */
 @Component
-@ConditionalOnProperty(prefix = "armada.tier-check", name = "enabled", havingValue = "true", matchIfMissing = false)
 public class AccountTierCheckScheduler {
     private static final Logger log = LoggerFactory.getLogger(AccountTierCheckScheduler.class);
     private final AccountTierCheckMapper mapper;
@@ -44,7 +42,6 @@ public class AccountTierCheckScheduler {
     /** 同步 HTTP 不占用 Scheduled 线程；满载时不再认领新条目。 */
     @Scheduled(fixedDelayString = "${armada.tier-check.tick-ms:500}")
     public void tick() {
-        if (!config.isEnabled()) return;
         Long previous = TenantContext.get();
         long now = System.currentTimeMillis();
         try {
@@ -72,7 +69,7 @@ public class AccountTierCheckScheduler {
         TenantContext.set(claim.work().tenantId());
         try {
             ProtocolAccountIntegrity result;
-            try { result = config.isEnabled() ? port.query(claim.executor(), claim.phone()) : ProtocolAccountIntegrity.failure("FEATURE_DISABLED"); }
+            try { result = port.query(claim.executor(), claim.phone()); }
             catch (ProtocolException ex) { result = ProtocolAccountIntegrity.failure(ex.errorCode().name()); }
             catch (RuntimeException ex) { result = ProtocolAccountIntegrity.failure("PROTOCOL_ERROR"); }
             transactions.apply(claim, result, System.currentTimeMillis());
